@@ -276,7 +276,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
     </select>
 
     <select id="selectDeviceByDeviceId" parameterType="Long" resultMap="DeviceResult">
-        select d.device_id, d.device_name, d.product_id, p.product_name,p.device_type, d.user_id, d.user_name, d.tenant_id, d.tenant_name,
+        select d.device_id, d.device_name, d.product_id, p.product_name,p.device_type,p.transport, d.user_id, d.user_name, d.tenant_id, d.tenant_name,
                d.serial_number, d.firmware_version, d.status, d.rssi,d.is_shadow,d.is_simulate ,d.location_way,d.things_model_value,
                d.network_address, d.network_ip, d.longitude, d.latitude, d.active_time, d.create_time, d.update_time,
                d.img_url,d.summary,d.remark from iot_device d

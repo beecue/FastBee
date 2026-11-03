@@ -326,7 +326,8 @@ import deviceTimer from './device-timer';
 import DeviceFunc from './device-functionlog';
 import vueQr from 'vue-qr';
 import { loadBMap } from '@/utils/map.js';
-import { deviceSynchronization, getDevice, addDevice, updateDevice, generatorDeviceNum, getMqttConnect, getSipConfig } from '@/api/iot/device';
+import { deviceSynchronization, getDevice, addDevice, updateDevice, generatorDeviceNum, getMqttConnect } from '@/api/iot/device';
+import { getSipconfig } from '@/api/iot/sipConfig';
 import { getDeviceRunningStatus } from '@/api/iot/device';
 import { cacheJsonThingsModel } from '@/api/iot/model';
 import deviceLiveStream from '@/views/components/player/deviceLiveStream';
@@ -978,6 +979,7 @@ export default {
             this.form.productId = product.productId;
             this.form.productName = product.productName;
             this.form.deviceType = product.deviceType;
+            this.form.transport = product.transport;
             this.form.tenantId = product.tenantId;
             this.form.tenantName = product.tenantName;
             if (product.transport === 'TCP') {
@@ -1106,7 +1108,20 @@ export default {
             this.openViewMqtt = true;
             this.loading = true;
             this.showSipConfig = false;
-            if (this.form.transport === 'MQTT' || this.form.transport === 'TCP' || this.form.transport === 'COAP') {
+            if (this.isSipTransport) {
+                // 国标(GB28181)设备展示 SIP 系统配置
+                this.showSipConfig = true;
+                getSipconfig(this.form.productId, false).then((response) => {
+                    if (response.code == 200) {
+                        this.GBform = response.data || {};
+                    }
+                }).catch(() => {
+                    this.$modal.msgError(this.$t('device.device-edit.148398-35'));
+                }).finally(() => {
+                    this.loading = false;
+                });
+            } else {
+                // MQTT / TCP / COAP / HTTP 等设备展示连接信息
                 const params = {
                     deviceId: this.form.deviceId,
                 };
@@ -1114,29 +1129,6 @@ export default {
                     if (response.code == 200) {
                         this.listQuery = response.data;
                     }
-                }).finally(() => {
-                    this.loading = false;
-                });
-            } else if (this.form.transport === 'HTTP') {
-                const params = {
-                    deviceId: this.form.deviceId,
-                };
-                getHttpConfig(params).then((response) => {
-                    if (response.code == 200) {
-                        this.httpForm = response.data;
-                    }
-                }).finally(() => {
-                    this.loading = false;
-                });
-            } else {
-                // Unknown or missing transport values fall back to SIP auth for this connection-info dialog.
-                this.showSipConfig = true;
-                getSipConfig(this.form.deviceId).then((response) => {
-                    if (response.code == 200) {
-                        this.GBform = response.data || {};
-                    }
-                }).catch(() => {
-                    this.$modal.msgError(this.$t('device.device-edit.148398-35'));
                 }).finally(() => {
                     this.loading = false;
                 });
