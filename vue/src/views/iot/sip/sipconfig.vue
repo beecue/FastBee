@@ -121,10 +121,23 @@ export default {
   created() {
     this.productInfo = this.product;
     if (this.productInfo && this.productInfo.productId != 0) {
-      this.getSipconfig(false);
+      this.loadSipconfig();
     }
   },
   methods: {
+    /** 加载产品SIP配置：没有独立配置时回落到后端默认(sip.*)配置预填 */
+    loadSipconfig() {
+      getSipconfig(this.productInfo.productId, false).then(response => {
+        if (response.data) {
+          this.form = response.data;
+          return;
+        }
+        // 该产品还没有独立配置，取默认配置预填，由用户确认后保存
+        getSipconfig(this.productInfo.productId, true).then(res => {
+          this.form = res.data || {};
+        });
+      });
+    },
     /** 获取产品下第一条SIP配置 */
     getSipconfig(isDefault) {
       getSipconfig(this.productInfo.productId, isDefault).then(response => {

@@ -51,13 +51,20 @@ public class SipConfigServiceImpl implements ISipConfigService {
         Object temp = redisCache.getCacheObject(FastBeeConstant.REDIS.DEFAULT_SIP_CONFIG);
         SipConfig sipConfig = new SipConfig();
         if (temp == null) {
+            SysSipConfig defConfig = new SysSipConfig();
+            defConfig.setEnabled(sysSipConfig.isEnabled());
+            defConfig.setIp(sysSipConfig.getIp());
+            defConfig.setPort(sysSipConfig.getPort());
+            defConfig.setDomain(sysSipConfig.getDomain());
+            defConfig.setId(sysSipConfig.getId());
+            defConfig.setPassword(sysSipConfig.getPassword());
+            redisCache.setCacheObject(FastBeeConstant.REDIS.DEFAULT_SIP_CONFIG, defConfig);
             sipConfig.setEnabled(sysSipConfig.isEnabled() ? 1 : 0);
             sipConfig.setIp(sysSipConfig.getIp());
             sipConfig.setPort(sysSipConfig.getPort());
             sipConfig.setDomain(sysSipConfig.getDomain());
             sipConfig.setServerSipid(sysSipConfig.getId());
             sipConfig.setPassword(sysSipConfig.getPassword());
-            redisCache.setCacheObject(FastBeeConstant.REDIS.DEFAULT_SIP_CONFIG, temp);
         } else if (temp instanceof SipConfig){
             sipConfig = (SipConfig) temp;
             updateDefaultSipConfig((SipConfig) temp);
