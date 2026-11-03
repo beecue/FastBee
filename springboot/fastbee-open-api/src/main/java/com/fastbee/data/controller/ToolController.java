@@ -4,12 +4,15 @@ import com.alibaba.fastjson2.JSONObject;
 import com.fastbee.common.ProtocolDeCodeService;
 import com.fastbee.common.annotation.Log;
 import com.fastbee.common.config.RuoYiConfig;
+import com.fastbee.common.constant.CacheConstants;
 import com.fastbee.common.constant.Constants;
 import com.fastbee.common.core.controller.BaseController;
 import com.fastbee.common.core.domain.AjaxResult;
 import com.fastbee.common.core.domain.entity.SysUser;
+import com.fastbee.common.core.domain.model.LoginUser;
 import com.fastbee.common.core.iot.response.DeCodeBo;
 import com.fastbee.common.core.page.TableDataInfo;
+import com.fastbee.common.core.redis.RedisCache;
 import com.fastbee.common.enums.BusinessType;
 import com.fastbee.common.exception.file.FileNameLengthLimitExceededException;
 import com.fastbee.common.utils.MessageUtils;
@@ -85,6 +88,9 @@ public class ToolController extends BaseController {
     private String secret;
 
     @Resource
+    private RedisCache redisCache;
+
+    @Resource
     private ProtocolDeCodeService deCodeService;
     @Resource
     private PubMqttClient mqttClient;
@@ -111,6 +117,27 @@ public class ToolController extends BaseController {
         return getDataTable(list);
     }
 
+    /**
+     * Web/移动端 MQTT 认证：JWT 签名合法还不够，必须回查登录态与用户状态
+     */
+    private boolean isValidWebSession(String token) {
+        try {
+            Claims claims = Jwts.parser().setSigningKey(secret).parseClaimsJws(token).getBody();
+            String uuid = (String) claims.get(Constants.LOGIN_USER_KEY);
+            if (StringUtils.isEmpty(uuid)) {
+                return false;
+            }
+            LoginUser loginUser = redisCache.getCacheObject(CacheConstants.LOGIN_TOKEN_KEY + uuid);
+            if (loginUser == null || loginUser.getUser() == null) {
+                return false;
+            }
+            SysUser user = loginUser.getUser();
+            return "0".equals(user.getStatus()) && !"2".equals(user.getDelFlag());
+        } catch (Exception ex) {
+            return false;
+        }
+    }
+
     @ApiOperation("mqtt认证")
     @PostMapping("/mqtt/auth")
     public ResponseEntity mqttAuth(@RequestParam String clientid, @RequestParam String username, @RequestParam String password) throws Exception {
@@ -123,18 +150,17 @@ public class ToolController extends BaseController {
                 return toolService.returnUnauthorized(new MqttAuthenticationModel(clientid, username, password), MessageUtils.message("mqtt.unauthorized"));
             }
         } else if (clientid.startsWith("web") || clientid.startsWith("phone")) {
-            // web端和移动端认证：token认证
+            // web端和移动端认证：token有效且存在活跃登录态
             String token = password;
             if (StringUtils.isNotEmpty(token) && token.startsWith(Constants.TOKEN_PREFIX)) {
                 token = token.replace(Constants.TOKEN_PREFIX, "");
             }
-            try {
-                Claims claims = Jwts.parser().setSigningKey(secret).parseClaimsJws(token).getBody();
+            if (isValidWebSession(token)) {
                 log.info("-----------移动端/Web端mqtt认证成功,clientId:" + clientid + "---------------");
                 return ResponseEntity.ok().body("ok");
-            } catch (Exception ex) {
-                return toolService.returnUnauthorized(new MqttAuthenticationModel(clientid, username, password), ex.getMessage());
             }
+            return toolService.returnUnauthorized(new MqttAuthenticationModel(clientid, username, password),
+                    "移动端/Web端mqtt认证失败：登录态已失效或用户不可用");
         } else {
            // 替换为整合之后的接口
            return toolService.clientAuth(clientid, username, password);
@@ -161,20 +187,18 @@ public class ToolController extends BaseController {
                 return ResponseEntity.ok().body(ret);
             }
         } else if (clientid.startsWith("web") || clientid.startsWith("phone")) {
-            // web端和移动端认证：token认证
+            // web端和移动端认证：token有效且存在活跃登录态
             String token = password;
             if (StringUtils.isNotEmpty(token) && token.startsWith(Constants.TOKEN_PREFIX)) {
                 token = token.replace(Constants.TOKEN_PREFIX, "");
             }
-            try {
-                Claims claims = Jwts.parser().setSigningKey(secret).parseClaimsJws(token).getBody();
+            if (isValidWebSession(token)) {
                 log.info("-----------移动端/Web端mqtt认证成功,clientId:" + clientid + "---------------");
                 ret.put("result", "allow");
-                return ResponseEntity.ok().body(ret);
-            } catch (Exception ex) {
+            } else {
                 ret.put("result", "deny");
-                return ResponseEntity.ok().body(ret);
             }
+            return ResponseEntity.ok().body(ret);
         } else {
             // 替换为整合之后的接口
             return toolService.clientAuthv5(clientid, username, password);
