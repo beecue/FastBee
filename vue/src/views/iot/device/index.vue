@@ -120,32 +120,28 @@
 
                             <div class="card-info">
                                 <div class="info-row">
-                                    <span class="info-value" style="width: 150px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">
-                                        {{ $t('device.device-edit.148398-4') }}：
-                                        <el-tooltip :content="item.productName || '---'" placement="top">
-                                            <span>{{ item.productName || '---' }}</span>
-                                        </el-tooltip>
-                                    </span>
+                                    <span class="info-label">{{ $t('device.device-edit.148398-4') }}</span>
+                                    <el-tooltip :content="item.productName || '---'" placement="top">
+                                        <span class="info-value">{{ item.productName || '---' }}</span>
+                                    </el-tooltip>
                                 </div>
                                 <div class="info-row">
-                                    <span class="info-value" style="width: 150px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">
-                                        {{ $t('device.device-edit.148398-7') }}：
-                                        <el-tooltip :content="item.serialNumber || '---'" placement="top">
-                                            <span>{{ item.serialNumber || '---' }}</span>
-                                        </el-tooltip>
-                                    </span>
+                                    <span class="info-label">{{ $t('device.device-edit.148398-7') }}</span>
+                                    <el-tooltip :content="item.serialNumber || '---'" placement="top">
+                                        <span class="info-value">{{ item.serialNumber || '---' }}</span>
+                                    </el-tooltip>
                                 </div>
                                 <div class="info-row" v-if="item.transport">
-                                    <span class="info-value">{{ $t('product.product-edit.473153-14') }}：{{ item.transport }}</span>
+                                    <span class="info-label">{{ $t('product.product-edit.473153-14') }}</span>
+                                    <el-tooltip :content="item.transport" placement="top">
+                                        <span class="info-value">{{ item.transport }}</span>
+                                    </el-tooltip>
                                 </div>
-
                                 <div class="info-row">
-                                    <span class="info-value" style="width: 150px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis">
-                                        {{ $t('device.index.105953-23') }}：
-                                        <el-tooltip :content="item.protocolCode || '--'" placement="top">
-                                            <span>{{ item.protocolCode || '--' }}</span>
-                                        </el-tooltip>
-                                    </span>
+                                    <span class="info-label">{{ $t('device.index.105953-23') }}</span>
+                                    <el-tooltip :content="item.protocolCode || '--'" placement="top">
+                                        <span class="info-value">{{ item.protocolCode || '--' }}</span>
+                                    </el-tooltip>
                                 </div>
                             </div>
 
@@ -575,16 +571,23 @@ export default {
         .info-row {
             display: flex;
             flex-direction: column;
+            min-width: 0;
 
             .info-label {
                 font-size: 12px;
                 color: #909399;
                 margin-bottom: 4px;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
             }
 
             .info-value {
                 font-size: 13px;
                 color: #606266;
+                white-space: nowrap;
+                overflow: hidden;
+                text-overflow: ellipsis;
             }
         }
     }
