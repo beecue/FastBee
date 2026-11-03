@@ -6,6 +6,7 @@ import com.fastbee.common.core.domain.AjaxResult;
 import com.fastbee.common.core.page.TableDataInfo;
 import com.fastbee.common.enums.BusinessType;
 import com.fastbee.common.utils.poi.ExcelUtil;
+import com.fastbee.data.acl.IotDataAccessGuard;
 import com.fastbee.iot.domain.Product;
 import com.fastbee.iot.model.ChangeProductStatusModel;
 import com.fastbee.iot.model.IdAndName;
@@ -32,6 +33,9 @@ public class ProductController extends BaseController
 {
     @Autowired
     private IProductService productService;
+
+    @Autowired
+    private IotDataAccessGuard accessGuard;
 
     /**
      * 查询产品列表
@@ -79,6 +83,7 @@ public class ProductController extends BaseController
     @ApiOperation("获取产品详情")
     public AjaxResult getInfo(@PathVariable("productId") Long productId)
     {
+        accessGuard.assertProductAccessible(productId);
         return AjaxResult.success(productService.selectProductByProductId(productId));
     }
 
@@ -103,6 +108,7 @@ public class ProductController extends BaseController
     @ApiOperation("修改产品")
     public AjaxResult edit(@RequestBody Product product)
     {
+        accessGuard.assertProductAccessible(product.getProductId());
         return toAjax(productService.updateProduct(product));
     }
 
@@ -114,6 +120,7 @@ public class ProductController extends BaseController
     @ApiOperation("获取产品下面的设备数量")
     public AjaxResult deviceCount(@PathVariable Long productId)
     {
+        accessGuard.assertProductAccessible(productId);
         return AjaxResult.success(productService.selectDeviceCountByProductId(productId));
     }
 
@@ -126,6 +133,7 @@ public class ProductController extends BaseController
     @ApiOperation("更新产品状态")
     public AjaxResult changeProductStatus(@RequestBody ChangeProductStatusModel model)
     {
+        accessGuard.assertProductAccessible(model.getProductId());
         return productService.changeProductStatus(model);
     }
 
@@ -138,6 +146,9 @@ public class ProductController extends BaseController
     @ApiOperation("批量删除产品")
     public AjaxResult remove(@PathVariable Long[] productIds)
     {
+        for (Long productId : productIds) {
+            accessGuard.assertProductAccessible(productId);
+        }
         return productService.deleteProductByProductIds(productIds);
     }
 

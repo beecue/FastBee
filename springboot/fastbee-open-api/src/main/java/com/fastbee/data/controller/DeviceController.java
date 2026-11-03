@@ -9,6 +9,7 @@ import com.fastbee.common.enums.BusinessType;
 import com.fastbee.common.utils.MessageUtils;
 import com.fastbee.common.utils.StringUtils;
 import com.fastbee.common.utils.poi.ExcelUtil;
+import com.fastbee.data.acl.IotDataAccessGuard;
 import com.fastbee.iot.domain.Device;
 import com.fastbee.iot.model.DeviceRelateUserInput;
 import com.fastbee.iot.model.ThingsModelItem.ThingsModel;
@@ -45,6 +46,9 @@ public class DeviceController extends BaseController
 {
     @Autowired
     private IDeviceService deviceService;
+
+    @Autowired
+    private IotDataAccessGuard accessGuard;
 
     // @Lazy
     @Autowired
@@ -131,6 +135,7 @@ public class DeviceController extends BaseController
     @ApiOperation("获取设备详情")
     public AjaxResult getInfo(@PathVariable("deviceId") Long deviceId)
     {
+        accessGuard.assertDeviceAccessible(deviceId);
         return AjaxResult.success(deviceService.selectDeviceByDeviceId(deviceId));
     }
 
@@ -142,6 +147,7 @@ public class DeviceController extends BaseController
     @ApiOperation("设备数据同步")
     public AjaxResult deviceSynchronization(@PathVariable("serialNumber") String serialNumber)
     {
+        accessGuard.assertDeviceAccessibleBySerialNumber(serialNumber);
         return AjaxResult.success(messagePublish.deviceSynchronization(serialNumber));
     }
 
@@ -153,6 +159,7 @@ public class DeviceController extends BaseController
     @ApiOperation("根据设备编号获取设备详情")
     public AjaxResult getInfoBySerialNumber(@PathVariable("serialNumber") String serialNumber)
     {
+        accessGuard.assertDeviceAccessibleBySerialNumber(serialNumber);
         return AjaxResult.success(deviceService.selectDeviceBySerialNumber(serialNumber));
     }
 
@@ -175,6 +182,7 @@ public class DeviceController extends BaseController
     @ApiOperation("获取设备详情和运行状态")
     public AjaxResult getRunningStatusInfo(Long deviceId, Integer slaveId)
     {
+        accessGuard.assertDeviceAccessible(deviceId);
         return AjaxResult.success(deviceService.selectDeviceRunningStatusByDeviceId(deviceId,slaveId));
     }
 
@@ -217,6 +225,7 @@ public class DeviceController extends BaseController
     @ApiOperation("修改设备")
     public AjaxResult edit(@RequestBody Device device)
     {
+        accessGuard.assertDeviceAccessible(device.getDeviceId());
         return deviceService.updateDevice(device);
     }
 
@@ -229,6 +238,7 @@ public class DeviceController extends BaseController
     @ApiOperation("重置设备状态")
     public AjaxResult resetDeviceStatus(@PathVariable String serialNumber)
     {
+        accessGuard.assertDeviceAccessibleBySerialNumber(serialNumber);
         Device device=new Device();
         device.setSerialNumber(serialNumber);
         return toAjax(deviceService.resetDeviceStatus(device.getSerialNumber()));
@@ -242,6 +252,9 @@ public class DeviceController extends BaseController
 	@DeleteMapping("/{deviceIds}")
     @ApiOperation("批量删除设备")
     public AjaxResult remove(@PathVariable Long[] deviceIds) throws SchedulerException {
+        for (Long deviceId : deviceIds) {
+            accessGuard.assertDeviceAccessible(deviceId);
+        }
         return toAjax(deviceService.deleteDeviceByDeviceId(deviceIds[0]));
     }
 
@@ -259,6 +272,7 @@ public class DeviceController extends BaseController
     @GetMapping("/gwDevCount")
     @ApiOperation("子设备数量")
     public AjaxResult getGwDevCount(String gwDevCode){
+        accessGuard.assertDeviceAccessibleBySerialNumber(gwDevCode);
         return AjaxResult.success(deviceService.getSubDeviceCount(gwDevCode));
     }
 
@@ -271,6 +285,7 @@ public class DeviceController extends BaseController
     @GetMapping("/getMqttConnectData")
     @ApiOperation("获取设备MQTT连接参数")
     public AjaxResult getMqttConnectData(Long deviceId){
+        accessGuard.assertDeviceConnectAccessible(deviceId);
         return AjaxResult.success(deviceService.getMqttConnectData(deviceId));
     }
 
@@ -281,6 +296,7 @@ public class DeviceController extends BaseController
     @GetMapping("/listThingsModel")
     @ApiOperation("查询变量概况")
     public TableDataInfo listThingsModel(Integer pageNum, Integer pageSize, Long deviceId, String modelName, Integer type, Integer isMonitor, Integer isReadonly) {
+        accessGuard.assertDeviceAccessible(deviceId);
         Device device = deviceService.selectDeviceByDeviceId(deviceId);
         if (Objects.isNull(device)) {
             return new TableDataInfo();
