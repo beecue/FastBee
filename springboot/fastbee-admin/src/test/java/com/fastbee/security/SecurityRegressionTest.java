@@ -163,7 +163,7 @@ public class SecurityRegressionTest {
         assertTrue(acl.canPublish(principal,"/41/device/ota/get","{}"));
         assertTrue(acl.canSubscribe(principal,"/41/device/#"));
         assertTrue(acl.canPublish(MqttClientPrincipal.of("device",MqttClientPrincipal.ClientType.DEVICE),"/41/device/property/post"));
-        assertTrue(acl.canSubscribe(MqttClientPrincipal.of("server",MqttClientPrincipal.ClientType.SERVER),"/+/+/property/post"));
+        assertTrue(acl.canPublish(MqttClientPrincipal.of("server",MqttClientPrincipal.ClientType.SERVER),"/41/device/function/get"));
         user.setUserId(1L); principal.setUserId(1L); when(users.selectUserById(1L)).thenReturn(user);
         assertTrue(acl.canSubscribe(principal,"/+/+/property/post"));
     }

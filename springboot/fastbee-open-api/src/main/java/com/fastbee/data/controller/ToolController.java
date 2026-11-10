@@ -15,7 +15,6 @@ import com.fastbee.common.core.page.TableDataInfo;
 import com.fastbee.common.core.redis.RedisCache;
 import com.fastbee.common.enums.BusinessType;
 import com.fastbee.common.exception.file.FileNameLengthLimitExceededException;
-import com.fastbee.common.utils.MessageUtils;
 import com.fastbee.common.utils.StringUtils;
 import com.fastbee.common.utils.file.FileUploadUtils;
 import com.fastbee.common.utils.file.FileUtils;
@@ -43,6 +42,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -74,6 +74,7 @@ import static com.fastbee.common.utils.file.FileUploadUtils.getExtension;
 @RequestMapping("/iot/tool")
 public class ToolController extends BaseController {
     private static final Logger log = LoggerFactory.getLogger(ToolController.class);
+    private static final String MQTT_CALLBACK_TOKEN_HEADER = "X-FastBee-Callback-Token";
 
     @Resource
     private IDeviceService deviceService;
@@ -140,14 +141,22 @@ public class ToolController extends BaseController {
 
     @ApiOperation("mqtt认证")
     @PostMapping("/mqtt/auth")
-    public ResponseEntity mqttAuth(@RequestParam String clientid, @RequestParam String username, @RequestParam String password) throws Exception {
+    public ResponseEntity mqttAuth(@RequestHeader(value = MQTT_CALLBACK_TOKEN_HEADER, required = false) String callbackToken,
+                                   @RequestParam(required = false) String clientid,
+                                   @RequestParam(required = false) String username,
+                                   @RequestParam(required = false) String password,
+                                   @RequestParam(value = "peerhost", required = false) String peer) {
+        if (!mqttConfig.isTrustedCallback(callbackToken)
+                || StringUtils.isEmpty(clientid) || StringUtils.isEmpty(username) || StringUtils.isEmpty(password)) {
+            return mqttAuthDenied();
+        }
         if (clientid.startsWith("server")) {
             // 服务端认证：配置的账号密码认证
-            if (mqttConfig.getUsername().equals(username) && mqttConfig.getPassword().equals(password)) {
+            if (mqttConfig.matchesServerCredentials(username, password)) {
                 log.info("-----------服务端mqtt认证成功,clientId:" + clientid + "---------------");
                 return ResponseEntity.ok().body("ok");
             } else {
-                return toolService.returnUnauthorized(new MqttAuthenticationModel(clientid, username, password), MessageUtils.message("mqtt.unauthorized"));
+                return toolService.returnUnauthorized(new MqttAuthenticationModel(clientid, username, password), "服务端 MQTT 凭据错误");
             }
         } else if (clientid.startsWith("web") || clientid.startsWith("phone")) {
             // web端和移动端认证：token有效且存在活跃登录态
@@ -162,47 +171,66 @@ public class ToolController extends BaseController {
             return toolService.returnUnauthorized(new MqttAuthenticationModel(clientid, username, password),
                     "移动端/Web端mqtt认证失败：登录态已失效或用户不可用");
         } else {
-           // 替换为整合之后的接口
-           return toolService.clientAuth(clientid, username, password);
+            try {
+                return toolService.clientAuth(clientid, username, password, peer);
+            } catch (Exception ex) {
+                // 旧版 Broker 按 HTTP 状态判断，不能落入会返回 HTTP 200 的全局异常处理。
+                log.warn("MQTT 设备认证异常，类型={}", ex.getClass().getSimpleName());
+                return mqttAuthDenied();
+            }
         }
     }
+
+    private ResponseEntity<String> mqttAuthDenied() {
+        return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body("Unauthorized");
+    }
+
     @ApiOperation("mqtt认证")
     @PostMapping("/mqtt/authv5")
-    public ResponseEntity mqttAuthv5(@RequestBody JSONObject json) throws Exception {
-        log.info("-----------auth-json:" + json + "---------------");
+    public ResponseEntity mqttAuthv5(@RequestHeader(value = MQTT_CALLBACK_TOKEN_HEADER, required = false) String callbackToken,
+                                     @RequestBody(required = false) JSONObject json) {
+        if (!mqttConfig.isTrustedCallback(callbackToken) || json == null) {
+            return mqttAuthv5Result(false);
+        }
         String clientid = json.getString("clientid");
         String username = json.getString("username");
         String password = json.getString("password");
-        String peerhost = json.getString("peerhost");  // 源IP地址
-        JSONObject ret = new JSONObject();
-        ret.put("is_superuser", false);
+        if (StringUtils.isEmpty(clientid) || StringUtils.isEmpty(username) || StringUtils.isEmpty(password)) {
+            return mqttAuthv5Result(false);
+        }
         if (clientid.startsWith("server")) {
-            // 服务端认证：配置的账号密码认证
-            if (mqttConfig.getUsername().equals(username) && mqttConfig.getPassword().equals(password)) {
+            boolean valid = mqttConfig.matchesServerCredentials(username, password);
+            if (valid) {
                 log.info("-----------服务端mqtt认证成功,clientId:" + clientid + "---------------");
-                ret.put("result", "allow");
-                return ResponseEntity.ok().body(ret);
-            } else {
-                ret.put("result", "deny");
-                return ResponseEntity.ok().body(ret);
             }
+            return mqttAuthv5Result(valid);
         } else if (clientid.startsWith("web") || clientid.startsWith("phone")) {
             // web端和移动端认证：token有效且存在活跃登录态
             String token = password;
             if (StringUtils.isNotEmpty(token) && token.startsWith(Constants.TOKEN_PREFIX)) {
                 token = token.replace(Constants.TOKEN_PREFIX, "");
             }
-            if (isValidWebSession(token)) {
+            boolean valid = isValidWebSession(token);
+            if (valid) {
                 log.info("-----------移动端/Web端mqtt认证成功,clientId:" + clientid + "---------------");
-                ret.put("result", "allow");
-            } else {
-                ret.put("result", "deny");
             }
-            return ResponseEntity.ok().body(ret);
+            return mqttAuthv5Result(valid);
         } else {
-            // 替换为整合之后的接口
-            return toolService.clientAuthv5(clientid, username, password);
+            try {
+                ResponseEntity response = toolService.clientAuthv5(clientid, username, password, json.getString("peerhost"));
+                return response.getStatusCode() == HttpStatus.OK ? response : mqttAuthv5Result(false);
+            } catch (Exception ex) {
+                log.warn("MQTT v5 设备认证异常，类型={}", ex.getClass().getSimpleName());
+                return mqttAuthv5Result(false);
+            }
         }
+    }
+
+    private ResponseEntity<JSONObject> mqttAuthv5Result(boolean allowed) {
+        JSONObject result = new JSONObject();
+        result.put("is_superuser", false);
+        result.put("result", allowed ? "allow" : "deny");
+        return ResponseEntity.ok(result);
     }
 
     @ApiOperation("mqtt钩子处理")

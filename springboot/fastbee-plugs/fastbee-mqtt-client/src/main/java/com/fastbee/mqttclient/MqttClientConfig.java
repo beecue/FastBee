@@ -2,11 +2,15 @@ package com.fastbee.mqttclient;
 
 import com.fastbee.common.utils.uuid.UUID;
 import lombok.Data;
+import lombok.ToString;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.context.properties.ConfigurationProperties;
 import org.springframework.stereotype.Component;
 
 import javax.annotation.PostConstruct;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.SecureRandom;
+import java.util.Base64;
 
 /**
  * mqtt配置信息
@@ -15,13 +19,27 @@ import javax.annotation.PostConstruct;
 @Data
 @Component
 public class MqttClientConfig {
+    private static final int MIN_SECRET_LENGTH = 32;
+
     @Value("${server.broker.port}")
     private int port;
 
     @PostConstruct
-    public void MqttClientConfig() {
-        this.username = "fastbee";
-        this.password = "fastbee";
+    public void initialize() {
+        if (username == null || username.trim().isEmpty()) {
+            throw new IllegalStateException("fastbee.mqtt.server-username must be set");
+        }
+        if (password == null || password.isEmpty()) {
+            byte[] secret = new byte[32];
+            new SecureRandom().nextBytes(secret);
+            password = Base64.getUrlEncoder().withoutPadding().encodeToString(secret);
+        } else if (password.trim().length() < MIN_SECRET_LENGTH) {
+            throw new IllegalStateException("fastbee.mqtt.server-password must be at least 32 characters");
+        }
+        if (callbackToken != null && !callbackToken.isEmpty()
+                && (callbackToken.trim().length() < MIN_SECRET_LENGTH || secretMatches(password, callbackToken))) {
+            throw new IllegalStateException("fastbee.mqtt.callback-token must be at least 32 characters and different from the server password");
+        }
         this.hostUrl = "tcp://127.0.0.1:" + port;
         this.clientId = UUID.randomUUID().toString();
         this.defaultTopic = "test";
@@ -31,14 +49,35 @@ public class MqttClientConfig {
         this.enabled = true;
     }
 
+    public boolean matchesServerCredentials(String username, String password) {
+        return this.username != null && this.username.equals(username) && secretMatches(this.password, password);
+    }
+
+    public boolean isTrustedCallback(String token) {
+        return secretMatches(callbackToken, token);
+    }
+
+    private static boolean secretMatches(String expected, String supplied) {
+        return expected != null && !expected.isEmpty() && supplied != null
+                && MessageDigest.isEqual(expected.getBytes(StandardCharsets.UTF_8), supplied.getBytes(StandardCharsets.UTF_8));
+    }
+
     /**
-     * 用户名
+     * 平台服务端 MQTT 账号，与设备产品凭据独立。
      */
+    @Value("${fastbee.mqtt.server-username:fastbee-server}")
     private String username;
     /**
      * 密码
      */
+    @Value("${fastbee.mqtt.server-password:}")
+    @ToString.Exclude
     private String password;
+
+    /** 仅外置 Broker 的 HTTP 认证回调使用，空值表示关闭认证回调。 */
+    @Value("${fastbee.mqtt.callback-token:}")
+    @ToString.Exclude
+    private String callbackToken;
     /**
      * 连接地址
      */

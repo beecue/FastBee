@@ -7,6 +7,7 @@ import com.fastbee.common.enums.ServerType;
 import com.fastbee.common.utils.DateUtils;
 import com.fastbee.mqtt.annotation.Process;
 import com.fastbee.mqtt.auth.AuthService;
+import com.fastbee.mqtt.acl.MqttAccessControl;
 import com.fastbee.mqtt.handler.adapter.MqttHandler;
 import com.fastbee.mqtt.manager.ResponseManager;
 import com.fastbee.mqtt.manager.SessionManger;
@@ -33,6 +34,8 @@ public class MqttConnect implements MqttHandler {
     @Autowired
     private AuthService authService;
     @Resource
+    private MqttAccessControl mqttAccessControl;
+    @Resource
     private RedisCache redisCache;
 
     @Override
@@ -43,7 +46,7 @@ public class MqttConnect implements MqttHandler {
         if (clientId.contains("&")){
             clientId =  clientId.split("&")[1];
         }
-        log.debug("=>客户端:{} 连接:{}", clientId, message);
+        log.debug("=>客户端:{} 建立 MQTT 连接", clientId);
         /*获取session*/
         Session session = new Session();
         /*mqtt版本*/
@@ -118,18 +121,20 @@ public class MqttConnect implements MqttHandler {
      * @return 结果
      */
     private boolean check(Session session, MqttConnectMessage message) {
-        /*获取客户端连接地址*/
-        InetSocketAddress address = (InetSocketAddress) session.getHandlerContext().channel().remoteAddress();
-        String host = address.getAddress().getHostAddress();
-        /*webSocket客户端 系统内部客户端不校验*/
         String clientId = message.payload().clientIdentifier();
         /*根据用户名，密码校验*/
         String username = message.payload().userName();
         String password = message.payload().passwordInBytes() == null ? null : new String(message.payload().passwordInBytes(), CharsetUtil.UTF_8);
         /*验证失败，应答客户端*/
-        MqttClientPrincipal principal = authService.authenticate(clientId, username, password);
+        MqttClientPrincipal principal = authService.authenticate(clientId, username, password, session.getIp());
         if (principal == null) {
             MqttConnAckMessage connAckMessage = MqttMessageUtils.buildConntAckMessage(MqttConnectReturnCode.CONNECTION_REFUSED_BAD_USER_NAME_OR_PASSWORD, false);
+            ResponseManager.responseMessage(session, connAckMessage, true);
+            return false;
+        }
+        if (principal.getClientType() == MqttClientPrincipal.ClientType.SERVER && message.variableHeader().isWillFlag()
+                && !mqttAccessControl.canPublish(principal, message.payload().willTopic())) {
+            MqttConnAckMessage connAckMessage = MqttMessageUtils.buildConntAckMessage(MqttConnectReturnCode.CONNECTION_REFUSED_NOT_AUTHORIZED, false);
             ResponseManager.responseMessage(session, connAckMessage, true);
             return false;
         }

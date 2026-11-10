@@ -60,8 +60,8 @@ public interface IToolService
     /**
      * 整合设备认证接口
      */
-    public ResponseEntity clientAuth(String clientid,String username,String password) throws Exception;
-    public ResponseEntity clientAuthv5(String clientid,String username,String password) throws Exception;
+    ResponseEntity clientAuth(String clientid, String username, String password, String peer) throws Exception;
+    ResponseEntity clientAuthv5(String clientid, String username, String password, String peer) throws Exception;
 
     /**
      * 返回认证信息

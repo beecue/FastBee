@@ -1,6 +1,9 @@
 package com.fastbee.mqtt.manager;
 
 import com.fastbee.base.session.Session;
+import com.fastbee.common.core.domain.model.MqttClientPrincipal;
+import com.fastbee.common.utils.spring.SpringUtils;
+import com.fastbee.mqtt.acl.MqttAccessControl;
 import io.netty.buffer.ByteBuf;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
@@ -53,9 +56,9 @@ public class ResponseManager {
      */
     public static void publishClients(MqttPublishMessage msg, Session session) {
         try {
-            if (session.getPrincipal() == null || session.getPrincipal().isWeb()
-                    && !com.fastbee.common.utils.spring.SpringUtils.getBean(com.fastbee.mqtt.acl.MqttAccessControl.class)
-                    .canSubscribe(session.getPrincipal(), msg.variableHeader().topicName())) {
+            MqttClientPrincipal principal = session.getPrincipal();
+            if (principal == null || (principal.isWeb() || principal.getClientType() == MqttClientPrincipal.ClientType.SERVER)
+                    && !SpringUtils.getBean(MqttAccessControl.class).canSubscribe(principal, msg.variableHeader().topicName())) {
                 session.getHandlerContext().close();
                 return;
             }

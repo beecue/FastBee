@@ -8,6 +8,19 @@ fastbee:
   profile: D:/uploadPath
   addressEnabled: true      # 获取ip地址开关
   captchaType: math         # 验证码类型 math 数组计算 char 字符验证
+  mqtt:
+    server-username: ${FASTBEE_MQTT_SERVER_USERNAME:fastbee-server}
+    # 单机内置 Broker 未配置密码时，在进程启动时生成。
+    server-password: ${FASTBEE_MQTT_SERVER_PASSWORD:}
+    # 仅接入外置 Broker HTTP 认证时配置独立密钥。
+    callback-token: ${FASTBEE_MQTT_CALLBACK_TOKEN:}
+    # 规则脚本或集成使用的额外精确 Topic，多个以逗号分隔。
+    server-extra-publish-topics: ${FASTBEE_MQTT_SERVER_EXTRA_PUBLISH_TOPICS:}
+    server-extra-subscribe-topics: ${FASTBEE_MQTT_SERVER_EXTRA_SUBSCRIBE_TOPICS:}
+    device-auth:
+      max-failures: ${FASTBEE_MQTT_DEVICE_MAX_FAILURES:10}
+      source-product-max-failures: ${FASTBEE_MQTT_SOURCE_PRODUCT_MAX_FAILURES:100}
+      window-seconds: ${FASTBEE_MQTT_DEVICE_AUTH_WINDOW_SECONDS:60}
 
 # 开发环境配置
 server:

@@ -57,6 +57,10 @@ public class AuthService {
      * @return 认证主体，认证失败返回 null
      */
     public MqttClientPrincipal authenticate(String clientId, String username, String password) {
+        return authenticate(clientId, username, password, null);
+    }
+
+    public MqttClientPrincipal authenticate(String clientId, String username, String password, String peer) {
         if (StringUtils.isEmpty(clientId) || StringUtils.isEmpty(username) || StringUtils.isEmpty(password)) {
             log.error("=>客户端参数缺少,clientId:{}", clientId);
             return null;
@@ -64,7 +68,7 @@ public class AuthService {
         try {
             if (clientId.startsWith("server")) {
                 // 服务端认证：配置的账号密码认证
-                if (mqttConfig.getUsername().equals(username) && mqttConfig.getPassword().equals(password)) {
+                if (mqttConfig.matchesServerCredentials(username, password)) {
                     log.info("-----------服务端mqtt认证成功,clientId:" + clientId + "---------------");
                     return MqttClientPrincipal.of(clientId, MqttClientPrincipal.ClientType.SERVER);
                 } else {
@@ -76,7 +80,7 @@ public class AuthService {
                 return authenticateWebClient(clientId, username, password);
             } else {
                 // 设备端认证
-                ResponseEntity response = toolService.clientAuth(clientId, username, password);
+                ResponseEntity response = toolService.clientAuth(clientId, username, password, peer);
                 if (response.getStatusCodeValue() == HttpStatus.OK.value()) {
                     return MqttClientPrincipal.of(clientId, MqttClientPrincipal.ClientType.DEVICE);
                 } else {
@@ -102,7 +106,7 @@ public class AuthService {
         try {
             claims = Jwts.parser().setSigningKey(secret).parseClaimsJws(token).getBody();
         } catch (Exception ex) {
-            ResponseEntity response = toolService.returnUnauthorized(new MqttAuthenticationModel(clientId, username, password), ex.getMessage());
+            ResponseEntity response = toolService.returnUnauthorized(new MqttAuthenticationModel(clientId, username, password), "登录令牌无效");
             log.warn("=>移动端/Web端mqtt认证失败[{}]", response.getBody());
             throw new ServiceException("移动端/Web端mqtt认证失败:" + response.getBody());
         }
