@@ -42,7 +42,7 @@ public class ProtocolController extends BaseController
      * 查询协议列表
      */
     @ApiOperation("查询协议列表")
-    @PreAuthorize("@ss.hasPermi('iot:protocol:list')")
+    @PreAuthorize("@ss.hasAnyPermi('iot:protocol:list,iot:product:add,iot:product:edit,iot:product:query')")
     @GetMapping("/list")
     public TableDataInfo list(Protocol protocol)
     {

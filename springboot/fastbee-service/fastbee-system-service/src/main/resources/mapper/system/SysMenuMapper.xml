@@ -150,7 +150,7 @@
 		where m.status = '0' and rm.role_id = #{roleId}
 	</select>
 	
-	<select id="selectMenuById" parameterType="Long" resultMap="SysMenuResult">
+	<select id="selectMenuById" resultMap="SysMenuResult">
 		select distinct m.menu_id,
 						case
 							when #{language} = 'zh-CN' then m.menu_name
