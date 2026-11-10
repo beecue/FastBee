@@ -9,6 +9,14 @@ export function listProduct(query) {
   })
 }
 
+export function listProductOptions(query) {
+  return request({
+    url: '/iot/product/options',
+    method: 'get',
+    params: query
+  })
+}
+
 // 查询产品列表
 export function listShortProduct() {
   return request({

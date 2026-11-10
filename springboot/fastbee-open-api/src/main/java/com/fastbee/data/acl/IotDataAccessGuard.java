@@ -10,6 +10,7 @@ import com.fastbee.iot.domain.Product;
 import com.fastbee.iot.mapper.DeviceMapper;
 import com.fastbee.iot.mapper.DeviceUserMapper;
 import com.fastbee.iot.mapper.ProductMapper;
+import com.fastbee.iot.security.IotCredentialAccess;
 import org.springframework.stereotype.Component;
 
 import javax.annotation.Resource;
@@ -35,31 +36,24 @@ public class IotDataAccessGuard {
     private ProductMapper productMapper;
 
     public void assertDeviceAccessible(Long deviceId) {
-        checkDevice(deviceMapper.selectDeviceByDeviceId(deviceId), true);
+        checkDevice(deviceMapper.selectDeviceByDeviceId(deviceId));
     }
 
     public void assertDeviceAccessibleBySerialNumber(String serialNumber) {
-        checkDevice(deviceMapper.selectDeviceBySerialNumber(serialNumber), true);
-    }
-
-    /** 连接凭据可绕过 broker 侧 ACL 以设备身份接入，因此共享用户不发放，只给归属方 */
-    public void assertDeviceConnectAccessible(Long deviceId) {
-        checkDevice(deviceMapper.selectDeviceByDeviceId(deviceId), false);
+        checkDevice(deviceMapper.selectDeviceBySerialNumber(serialNumber));
     }
 
     public void assertProductAccessible(Long productId) {
-        Product product = productMapper.selectProductByProductId(productId);
-        if (product == null) {
-            return;
-        }
-        SysUser user = currentUser();
-        if (isGlobal(user) || Objects.equals(product.getTenantId(), user.getUserId())) {
-            return;
-        }
-        throw new ServiceException("无权访问其他租户的产品");
+        assertProductAccessible(productMapper.selectProductByProductId(productId));
     }
 
-    private void checkDevice(Device device, boolean allowShare) {
+    public void assertProductAccessible(Product product) {
+        if (product != null && !IotCredentialAccess.canManageProduct(currentUser(), product)) {
+            throw new ServiceException("无权访问其他租户的产品");
+        }
+    }
+
+    private void checkDevice(Device device) {
         if (device == null) {
             return;
         }
@@ -67,7 +61,7 @@ public class IotDataAccessGuard {
         if (isGlobal(user)
                 || Objects.equals(device.getUserId(), user.getUserId())
                 || Objects.equals(device.getTenantId(), user.getUserId())
-                || (allowShare && isShared(device.getDeviceId(), user.getUserId()))) {
+                || isShared(device.getDeviceId(), user.getUserId())) {
             return;
         }
         throw new ServiceException("无权访问其他用户的设备");

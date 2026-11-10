@@ -54,7 +54,7 @@
 </template>
 
 <script>
-import { listProduct } from '@/api/iot/product';
+import { listProductOptions } from '@/api/iot/product';
 
 export default {
     name: 'ProductList',
@@ -94,7 +94,7 @@ export default {
         /** 查询产品列表 */
         getList() {
             this.loading = true;
-            listProduct(this.queryParams).then((response) => {
+            listProductOptions(this.queryParams).then((response) => {
                 //产品列表初始化isSelect值，用于单选
                 for (let i = 0; i < response.rows.length; i++) {
                     response.rows[i].isSelect = false;

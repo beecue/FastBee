@@ -1,7 +1,6 @@
 package com.fastbee.iot.service.impl;
 
 import com.fastbee.common.core.domain.AjaxResult;
-import com.fastbee.common.core.domain.entity.SysRole;
 import com.fastbee.common.core.domain.entity.SysUser;
 import com.fastbee.common.core.redis.RedisCache;
 import com.fastbee.common.core.redis.RedisKeyBuilder;
@@ -16,6 +15,7 @@ import com.fastbee.iot.model.ChangeProductStatusModel;
 import com.fastbee.iot.model.IdAndName;
 import com.fastbee.iot.model.ImportThingsModelInput;
 import com.fastbee.iot.model.ProductCode;
+import com.fastbee.iot.security.IotCredentialAccess;
 import com.fastbee.iot.service.IProductService;
 import com.fastbee.iot.service.IThingsModelTemplateService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -84,13 +84,15 @@ public class ProductServiceImpl implements IProductService
     @Override
     public List<Product> selectProductList(Product product)
     {
-        SysUser user = getLoginUser().getUser();
-        List<SysRole> roles=user.getRoles();
-        // 租户
-        if(roles.stream().anyMatch(a->a.getRoleKey().equals("tenant"))){
-            product.setTenantId(user.getUserId());
-        }
-        return productMapper.selectProductList(product);
+        Long ownerId = IotCredentialAccess.managedTenantId(getLoginUser().getUser());
+        return productMapper.selectProductList(product, ownerId, false);
+    }
+
+    @Override
+    public List<Product> selectAvailableProductList(Product product)
+    {
+        Long ownerId = IotCredentialAccess.managedTenantId(getLoginUser().getUser());
+        return productMapper.selectProductList(product, ownerId, true);
     }
 
     /**
@@ -101,13 +103,8 @@ public class ProductServiceImpl implements IProductService
     @Override
     public List<IdAndName> selectProductShortList()
     {
-        Product product =new Product();
-        SysUser user = getLoginUser().getUser();
-        List<SysRole> roles=user.getRoles();
-        // 租户
-        if(roles.stream().anyMatch(a->a.getRoleKey().equals("tenant"))){
-            product.setTenantId(user.getUserId());
-        }
+        Product product = new Product();
+        product.setTenantId(IotCredentialAccess.managedTenantId(getLoginUser().getUser()));
         return productMapper.selectProductShortList(product);
     }
 
@@ -121,16 +118,8 @@ public class ProductServiceImpl implements IProductService
     @Transactional(rollbackFor = Exception.class)
     public Product insertProduct(Product product)
     {
-        // 判断是否为管理员
-        product.setIsSys(1);
         SysUser user = getLoginUser().getUser();
-        List<SysRole> roles=user.getRoles();
-        for(int i=0;i<roles.size();i++){
-            if(roles.get(i).getRoleKey().equals("tenant") || roles.get(i).getRoleKey().equals("general")){
-                product.setIsSys(0);
-                break;
-            }
-        }
+        product.setIsSys(IotCredentialAccess.isPlatformManager(user) ? 1 : 0);
         // mqtt账号密码
         if(product.getMqttAccount()==null || product.getMqttAccount().equals("")){
             product.setMqttAccount("FastBee");
@@ -170,6 +159,11 @@ public class ProductServiceImpl implements IProductService
     @Override
     public int updateProduct(Product product)
     {
+        if (!IotCredentialAccess.isPlatformManager(getLoginUser().getUser())) {
+            product.setTenantId(null);
+            product.setTenantName(null);
+            product.setIsSys(null);
+        }
         product.setUpdateTime(DateUtils.getNowDate());
         return productMapper.updateProduct(product);
     }

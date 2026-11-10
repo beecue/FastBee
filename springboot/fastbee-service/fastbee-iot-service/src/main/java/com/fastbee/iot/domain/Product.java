@@ -1,5 +1,6 @@
 package com.fastbee.iot.domain;
 
+import com.fasterxml.jackson.annotation.JsonInclude;
 import io.swagger.annotations.ApiModel;
 import io.swagger.annotations.ApiModelProperty;
 import org.apache.commons.lang3.builder.ToStringBuilder;
@@ -59,14 +60,17 @@ public class Product extends BaseEntity
 
     /** mqtt账号 */
     @ApiModelProperty("mqtt账号")
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     private String mqttAccount;
 
     /** mqtt密码 */
     @ApiModelProperty("mqtt密码")
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     private String mqttPassword;
 
     /** 产品秘钥 */
     @ApiModelProperty("产品秘钥")
+    @JsonInclude(JsonInclude.Include.NON_NULL)
     private String mqttSecret;
 
     /*产品协议编号*/

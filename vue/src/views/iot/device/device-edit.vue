@@ -1105,6 +1105,7 @@ export default {
         },
         //mqtt参数查看
         handleViewMqtt() {
+            this.listQuery = {};
             this.openViewMqtt = true;
             this.loading = true;
             this.showSipConfig = false;
@@ -1129,6 +1130,8 @@ export default {
                     if (response.code == 200) {
                         this.listQuery = response.data;
                     }
+                }).catch(() => {
+                    this.openViewMqtt = false;
                 }).finally(() => {
                     this.loading = false;
                 });

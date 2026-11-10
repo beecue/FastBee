@@ -40,12 +40,22 @@ public class ProductController extends BaseController
     /**
      * 查询产品列表
      */
+    @PreAuthorize("@ss.hasPermi('iot:product:list')")
     @GetMapping("/list")
     @ApiOperation("产品分页列表")
     public TableDataInfo list(Product product)
     {
         startPage();
         return getDataTable(productService.selectProductList(product));
+    }
+
+    @PreAuthorize("@ss.hasAnyPermi('iot:product:list,iot:device:add,iot:device:edit,iot:script:add,iot:script:edit,iot:video:add,iot:video:edit')")
+    @GetMapping("/options")
+    @ApiOperation("查询业务可选产品")
+    public TableDataInfo options(Product product)
+    {
+        startPage();
+        return getDataTable(productService.selectAvailableProductList(product));
     }
 
     /**
@@ -83,15 +93,17 @@ public class ProductController extends BaseController
     @ApiOperation("获取产品详情")
     public AjaxResult getInfo(@PathVariable("productId") Long productId)
     {
-        accessGuard.assertProductAccessible(productId);
-        return AjaxResult.success(productService.selectProductByProductId(productId));
+        Product product = productService.selectProductByProductId(productId);
+        accessGuard.assertProductAccessible(product);
+        return AjaxResult.success(product);
     }
 
     /**
      * 新增产品
      */
     @PreAuthorize("@ss.hasPermi('iot:product:add')")
-    @Log(title = "添加产品", businessType = BusinessType.INSERT)
+    @Log(title = "添加产品", businessType = BusinessType.INSERT, isSaveResponseData = false,
+            excludeParamNames = {"mqttAccount", "mqttPassword", "mqttSecret"})
     @PostMapping
     @ApiOperation("添加产品")
     public AjaxResult add(@RequestBody Product product)
@@ -103,7 +115,8 @@ public class ProductController extends BaseController
      * 修改产品
      */
     @PreAuthorize("@ss.hasPermi('iot:product:edit')")
-    @Log(title = "修改产品", businessType = BusinessType.UPDATE)
+    @Log(title = "修改产品", businessType = BusinessType.UPDATE,
+            excludeParamNames = {"mqttAccount", "mqttPassword", "mqttSecret"})
     @PutMapping
     @ApiOperation("修改产品")
     public AjaxResult edit(@RequestBody Product product)

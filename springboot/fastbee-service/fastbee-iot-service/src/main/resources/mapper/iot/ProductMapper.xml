@@ -21,6 +21,7 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         <result property="deviceType"    column="device_type"    />
         <result property="networkMethod"    column="network_method"    />
         <result property="vertificateMethod"    column="vertificate_method"    />
+        <result property="delFlag" column="del_flag"/>
         <result property="imgUrl"    column="img_url"    />
         <result property="createTime"    column="create_time"    />
         <result property="updateTime"    column="update_time"    />
@@ -33,22 +34,34 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         <result property="name"    column="product_name"    />
     </resultMap>
 
-    <sql id="selectProductVo">
-        select product_id, product_name,protocol_code,transport, category_id, category_name, tenant_id, tenant_name, is_sys, is_authorize, mqtt_account,mqtt_password,mqtt_secret ,status, device_type, network_method, vertificate_method, create_time, update_time, img_url,remark from iot_product
+    <sql id="productMetadataColumns">
+        product_id, product_name, protocol_code, transport, category_id, category_name, tenant_id,
+        tenant_name, is_sys, is_authorize, status, device_type, network_method, vertificate_method,
+        create_time, update_time, img_url, remark
     </sql>
 
-    <select id="selectProductList" parameterType="com.fastbee.iot.domain.Product" resultMap="ProductResult">
-        <include refid="selectProductVo"/>
+    <sql id="selectProductVo">
+        select <include refid="productMetadataColumns"/>, del_flag, mqtt_account, mqtt_password, mqtt_secret from iot_product
+    </sql>
+
+    <select id="selectProductList" resultMap="ProductResult">
+        select <include refid="productMetadataColumns"/> from iot_product
         <where>
-            <if test="productName != null  and productName != ''"> and product_name like concat('%', #{productName}, '%')</if>
-            <if test="categoryId != null "> and category_id = #{categoryId}</if>
-            <if test="categoryName != null  and categoryName != ''"> and category_name like concat('%', #{categoryName}, '%')</if>
-            <if test="tenantName != null  and tenantName != ''"> and tenant_name like concat('%', #{tenantName}, '%')</if>
-            <if test="isAuthorize != null "> and is_authorize = #{isAuthorize}</if>
-            <if test="status != null "> and status = #{status}</if>
-            <if test="deviceType != null "> and device_type = #{deviceType}</if>
-            <if test="networkMethod != null "> and network_method = #{networkMethod}</if>
-            <if test="tenantId != null  and tenantId != 0"> and tenant_id = #{tenantId}</if>
+            and (del_flag is null or del_flag = '0')
+            <if test="ownerId != null">
+                and (tenant_id = #{ownerId}
+                <if test="includeSystem"> or (is_sys = 1 and status = 2)</if>
+                )
+            </if>
+            <if test="product.productName != null and product.productName != ''"> and product_name like concat('%', #{product.productName}, '%')</if>
+            <if test="product.categoryId != null"> and category_id = #{product.categoryId}</if>
+            <if test="product.categoryName != null and product.categoryName != ''"> and category_name like concat('%', #{product.categoryName}, '%')</if>
+            <if test="product.tenantName != null and product.tenantName != ''"> and tenant_name like concat('%', #{product.tenantName}, '%')</if>
+            <if test="product.isAuthorize != null"> and is_authorize = #{product.isAuthorize}</if>
+            <if test="product.status != null"> and status = #{product.status}</if>
+            <if test="product.deviceType != null"> and device_type = #{product.deviceType}</if>
+            <if test="product.networkMethod != null"> and network_method = #{product.networkMethod}</if>
+            <if test="product.tenantId != null and product.tenantId != 0"> and tenant_id = #{product.tenantId}</if>
         </where>
         order by create_time desc
     </select>

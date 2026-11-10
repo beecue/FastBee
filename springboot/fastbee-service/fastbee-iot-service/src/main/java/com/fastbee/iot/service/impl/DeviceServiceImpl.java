@@ -5,6 +5,7 @@ import com.alibaba.fastjson2.JSONArray;
 import com.alibaba.fastjson2.JSONObject;
 import com.baomidou.dynamic.datasource.annotation.DSTransactional;
 import com.fastbee.common.constant.Constants;
+import com.fastbee.common.constant.HttpStatus;
 import com.fastbee.common.constant.ProductAuthConstant;
 import com.fastbee.common.core.domain.AjaxResult;
 import com.fastbee.common.core.domain.entity.SysRole;
@@ -36,6 +37,7 @@ import com.fastbee.iot.model.ThingsModels.ThingsModelShadow;
 import com.fastbee.iot.model.ThingsModels.ThingsModelValueItem;
 import com.fastbee.iot.model.ThingsModels.ValueItem;
 import com.fastbee.iot.model.dto.ThingsModelDTO;
+import com.fastbee.iot.security.IotCredentialAccess;
 import com.fastbee.iot.service.*;
 import com.fastbee.iot.service.cache.IDeviceCache;
 import com.fastbee.iot.tsdb.service.ILogService;
@@ -689,9 +691,10 @@ public class DeviceServiceImpl implements IDeviceService {
         device.setRssi(0);
 
         // 设置租户
-        Product product = productService.selectProductByProductId(device.getProductId());
+        Product product = requireAvailableProduct(device.getProductId(), sysUser);
         device.setTenantId(product.getTenantId());
         device.setTenantName(product.getTenantName());
+        device.setProductName(product.getProductName());
         device.setImgUrl(product.getImgUrl());
         // 随机经纬度和地址
         SysUser user = getLoginUser().getUser();
@@ -741,15 +744,24 @@ public class DeviceServiceImpl implements IDeviceService {
     @Override
     @DSTransactional
     public AjaxResult deviceRelateUser(DeviceRelateUserInput deviceRelateUserInput) {
-        // 查询用户信息
+        SysUser operator = getLoginUser().getUser();
         SysUser sysUser = userService.selectUserById(deviceRelateUserInput.getUserId());
-        for (int i = 0; i < deviceRelateUserInput.getDeviceNumberAndProductIds().size(); i++) {
-            Device existDevice = deviceMapper.selectDeviceBySerialNumber(deviceRelateUserInput.getDeviceNumberAndProductIds().get(i).getDeviceNumber());
+        if (sysUser == null) {
+            throw new ServiceException(MessageUtils.message("device.user.id.null"));
+        }
+        for (DeviceNumberAndProductId item : deviceRelateUserInput.getDeviceNumberAndProductIds()) {
+            Device existDevice = deviceMapper.selectDeviceBySerialNumber(item.getDeviceNumber());
             if (existDevice != null) {
-                if (existDevice.getUserId().longValue() == deviceRelateUserInput.getUserId().longValue()) {
-                    return AjaxResult.error(MessageUtils.message("now.user.belong.device.can.not.repeat.share", existDevice.getSerialNumber()));
+                if (!IotCredentialAccess.canManageDevice(operator, existDevice)) {
+                    throw new ServiceException("无权变更其他用户设备的归属");
                 }
-                // 先删除设备的所有用户
+                if (sysUser.getUserId().equals(existDevice.getUserId())) {
+                    throw new ServiceException(MessageUtils.message("now.user.belong.device.can.not.repeat.share", existDevice.getSerialNumber()));
+                }
+                if (deviceMapper.transferDeviceOwner(existDevice, sysUser.getUserId(), sysUser.getUserName()) != 1) {
+                    throw new ServiceException("设备归属已变更，请刷新后重试");
+                }
+                // 归属更新成功后再替换设备用户关系
                 deviceUserMapper.deleteDeviceUserByDeviceId(new UserIdDeviceIdModel(null, existDevice.getDeviceId()));
                 // 添加新的设备用户
                 DeviceUser deviceUser = new DeviceUser();
@@ -762,19 +774,18 @@ public class DeviceServiceImpl implements IDeviceService {
                 deviceUser.setTenantName(existDevice.getTenantName());
                 deviceUser.setIsOwner(1);
                 deviceUser.setCreateTime(DateUtils.getNowDate());
-                deviceUserMapper.insertDeviceUser(deviceUser);
-                // 更新设备用户信息
-                existDevice.setUserId(deviceRelateUserInput.getUserId());
-                existDevice.setUserName(sysUser.getUserName());
-                deviceMapper.updateDevice(existDevice);
+                if (deviceUserMapper.insertDeviceUser(deviceUser) != 1) {
+                    throw new ServiceException("保存设备用户关系失败");
+                }
             } else {
-                // 自动添加设备
-                int result = insertDeviceAuto(
-                        deviceRelateUserInput.getDeviceNumberAndProductIds().get(i).getDeviceNumber(),
-                        deviceRelateUserInput.getUserId(),
-                        deviceRelateUserInput.getDeviceNumberAndProductIds().get(i).getProductId());
+                Product product = requireAvailableProduct(item.getProductId(), operator);
+                if (!operator.getUserId().equals(sysUser.getUserId())
+                        && !IotCredentialAccess.canManageProduct(operator, product)) {
+                    throw new ServiceException("无权为其他用户添加此产品的设备");
+                }
+                int result = insertDeviceAuto(item.getDeviceNumber(), sysUser.getUserId(), product.getProductId());
                 if (result == 0) {
-                    return AjaxResult.error(MessageUtils.message("device.not.exist.add.fail.please.check.product.id.is.correct"));
+                    throw new ServiceException(MessageUtils.message("device.not.exist.add.fail.please.check.product.id.is.correct"));
                 }
             }
         }
@@ -899,6 +910,9 @@ public class DeviceServiceImpl implements IDeviceService {
     public AjaxResult updateDevice(Device device) {
         // 设备编号唯一检查
         Device oldDevice = deviceMapper.selectDeviceByDeviceId(device.getDeviceId());
+        if (oldDevice == null) {
+            throw new ServiceException("设备不存在");
+        }
         if (!oldDevice.getSerialNumber().equals(device.getSerialNumber())) {
             Device existDevice = deviceMapper.selectDeviceBySerialNumber(device.getSerialNumber());
             if (existDevice != null) {
@@ -907,14 +921,29 @@ public class DeviceServiceImpl implements IDeviceService {
             }
         }
         device.setUpdateTime(DateUtils.getNowDate());
-        // 未激活状态,可以修改产品以及物模型值
-        if (device.getStatus() == 1) {
-            // 缓存设备状态（物模型值）
-            cacheDeviceStatus(device.getProductId(), device.getSerialNumber());
-
+        // 所有者只能走设备关联流程变更，租户归属只能由产品决定。
+        device.setUserId(null);
+        device.setUserName(null);
+        device.setTenantId(null);
+        device.setTenantName(null);
+        boolean inactive = Integer.valueOf(1).equals(device.getStatus());
+        Long productId = device.getProductId();
+        if (inactive && productId != null && !productId.equals(oldDevice.getProductId())) {
+            SysUser user = getLoginUser().getUser();
+            if (!IotCredentialAccess.canManageDevice(user, oldDevice)) {
+                throw new ServiceException("无权更换其他用户设备的产品");
+            }
+            Product product = requireAvailableProduct(productId, user);
+            device.setProductName(product.getProductName());
+            device.setTenantId(product.getTenantId());
+            device.setTenantName(product.getTenantName());
         } else {
             device.setProductId(null);
             device.setProductName(null);
+            productId = oldDevice.getProductId();
+        }
+        if (inactive) {
+            cacheDeviceStatus(productId, device.getSerialNumber());
         }
         deviceMapper.updateDevice(device);
         // 更新前设备状态为禁用，启用后状态默认为离线，满足时下发获取设备最新状态指令
@@ -923,6 +952,14 @@ public class DeviceServiceImpl implements IDeviceService {
             // emqxService.publishInfo(oldDevice.getProductId(), oldDevice.getSerialNumber());
         }
         return AjaxResult.success("修改成功", 1);
+    }
+
+    private Product requireAvailableProduct(Long productId, SysUser user) {
+        Product product = productId == null ? null : productService.selectProductByProductId(productId);
+        if (product == null || !IotCredentialAccess.canUseProduct(user, product)) {
+            throw new ServiceException("产品不存在或无权使用该产品");
+        }
+        return product;
     }
 
     /**
@@ -1238,9 +1275,10 @@ public class DeviceServiceImpl implements IDeviceService {
     @Override
     public DeviceMqttConnectVO getMqttConnectData(Long deviceId) {
         DeviceMqttConnectVO connectVO = new DeviceMqttConnectVO();
-        DeviceMqttVO deviceMqttVO = deviceMapper.selectMqttConnectData(deviceId);
+        Long tenantId = IotCredentialAccess.managedTenantId(getLoginUser().getUser());
+        DeviceMqttVO deviceMqttVO = deviceMapper.selectMqttConnectData(deviceId, tenantId);
         if (deviceMqttVO == null) {
-            throw new ServiceException(MessageUtils.message("device.get.mqtt.connection.param.fail"));
+            throw new ServiceException("设备不存在或无权查看 MQTT 连接参数", HttpStatus.FORBIDDEN);
         }
         // 不管认证方式，目前就只返回简单认证方式
         String password;

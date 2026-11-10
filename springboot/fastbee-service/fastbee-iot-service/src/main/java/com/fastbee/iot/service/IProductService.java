@@ -32,6 +32,8 @@ public interface IProductService
      */
     public List<Product> selectProductList(Product product);
 
+    List<Product> selectAvailableProductList(Product product);
+
     /**
      * 查询产品简短列表
      *

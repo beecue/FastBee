@@ -4,6 +4,7 @@ import com.fastbee.iot.domain.Product;
 import com.fastbee.iot.model.ChangeProductStatusModel;
 import com.fastbee.iot.model.IdAndName;
 import com.fastbee.iot.model.ProductCode;
+import org.apache.ibatis.annotations.Param;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
@@ -31,7 +32,8 @@ public interface ProductMapper
      * @param product 产品
      * @return 产品集合
      */
-    public List<Product> selectProductList(Product product);
+    List<Product> selectProductList(@Param("product") Product product, @Param("ownerId") Long ownerId,
+                                    @Param("includeSystem") boolean includeSystem);
 
     /**
      * 查询产品简短列表

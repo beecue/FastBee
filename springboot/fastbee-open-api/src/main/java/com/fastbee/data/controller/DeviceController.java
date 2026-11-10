@@ -207,7 +207,7 @@ public class DeviceController extends BaseController
     @ApiOperation("设备关联用户")
     public AjaxResult relateUser(@RequestBody DeviceRelateUserInput deviceRelateUserInput)
     {
-        if(deviceRelateUserInput.getUserId()==0 || deviceRelateUserInput.getUserId()==null){
+        if (deviceRelateUserInput.getUserId() == null || deviceRelateUserInput.getUserId() <= 0) {
             return AjaxResult.error(MessageUtils.message("device.user.id.null"));
         }
         if(deviceRelateUserInput.getDeviceNumberAndProductIds()==null || deviceRelateUserInput.getDeviceNumberAndProductIds().size()==0){
@@ -284,8 +284,7 @@ public class DeviceController extends BaseController
     @PreAuthorize("@ss.hasPermi('iot:device:query')")
     @GetMapping("/getMqttConnectData")
     @ApiOperation("获取设备MQTT连接参数")
-    public AjaxResult getMqttConnectData(Long deviceId){
-        accessGuard.assertDeviceConnectAccessible(deviceId);
+    public AjaxResult getMqttConnectData(@RequestParam Long deviceId){
         return AjaxResult.success(deviceService.getMqttConnectData(deviceId));
     }
 

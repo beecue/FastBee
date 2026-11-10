@@ -163,6 +163,9 @@ public interface DeviceMapper
      */
     public int updateDevice(Device device);
 
+    int transferDeviceOwner(@Param("device") Device device, @Param("userId") Long userId,
+                            @Param("userName") String userName);
+
     /**
      * 更新设备状态
      *
@@ -279,7 +282,7 @@ public interface DeviceMapper
      * @param deviceId 设备id
      * @return
      */
-    DeviceMqttVO selectMqttConnectData(Long deviceId);
+    DeviceMqttVO selectMqttConnectData(@Param("deviceId") Long deviceId, @Param("tenantId") Long tenantId);
 
     /**
      * 查询告警日志相关联信息

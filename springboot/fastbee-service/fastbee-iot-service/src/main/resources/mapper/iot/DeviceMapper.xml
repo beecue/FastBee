@@ -460,6 +460,20 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
         where device_id = #{deviceId}
     </update>
 
+    <update id="transferDeviceOwner">
+        update iot_device
+        set user_id = #{userId}, user_name = #{userName}
+        where device_id = #{device.deviceId}
+        <choose>
+            <when test="device.userId != null">and user_id = #{device.userId}</when>
+            <otherwise>and user_id is null</otherwise>
+        </choose>
+        <choose>
+            <when test="device.tenantId != null">and tenant_id = #{device.tenantId}</when>
+            <otherwise>and tenant_id is null</otherwise>
+        </choose>
+    </update>
+
     <update id="updateDeviceStatus" parameterType="com.fastbee.iot.domain.Device">
         update iot_device
         <trim prefix="SET" suffixOverrides=",">
@@ -617,13 +631,16 @@ PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
                d.user_id,
                p.mqtt_account,
                p.mqtt_password,
-               p.mqtt_secret,
                p.vertificate_method,
                p.is_authorize
         from iot_device d inner join iot_product p on d.product_id = p.product_id
         where d.device_id = #{deviceId}
         and d.del_flag = 0
         and p.del_flag = 0
+        <if test="tenantId != null">
+            and p.tenant_id = #{tenantId}
+            and (d.tenant_id = #{tenantId} or d.user_id = #{tenantId})
+        </if>
     </select>
 
     <select id="selectDeviceBySerialNumbers" resultMap="DeviceRelateAlertLogVOResult">
