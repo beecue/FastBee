@@ -40,6 +40,11 @@ public class MqttClientConfig {
                 && (callbackToken.trim().length() < MIN_SECRET_LENGTH || secretMatches(password, callbackToken))) {
             throw new IllegalStateException("fastbee.mqtt.callback-token must be at least 32 characters and different from the server password");
         }
+        if (webhookToken != null && !webhookToken.isEmpty()
+                && (webhookToken.trim().length() < MIN_SECRET_LENGTH || secretMatches(password, webhookToken)
+                    || secretMatches(callbackToken, webhookToken))) {
+            throw new IllegalStateException("fastbee.mqtt.webhook-token must be at least 32 characters and different from the server password and callback token");
+        }
         this.hostUrl = "tcp://127.0.0.1:" + port;
         this.clientId = UUID.randomUUID().toString();
         this.defaultTopic = "test";
@@ -55,6 +60,10 @@ public class MqttClientConfig {
 
     public boolean isTrustedCallback(String token) {
         return secretMatches(callbackToken, token);
+    }
+
+    public boolean isTrustedWebhook(String token) {
+        return secretMatches(webhookToken, token);
     }
 
     private static boolean secretMatches(String expected, String supplied) {
@@ -78,6 +87,11 @@ public class MqttClientConfig {
     @Value("${fastbee.mqtt.callback-token:}")
     @ToString.Exclude
     private String callbackToken;
+
+    /** 仅外置 Broker 的 HTTP 事件回调使用，空值表示关闭事件回调。 */
+    @Value("${fastbee.mqtt.webhook-token:}")
+    @ToString.Exclude
+    private String webhookToken;
     /**
      * 连接地址
      */

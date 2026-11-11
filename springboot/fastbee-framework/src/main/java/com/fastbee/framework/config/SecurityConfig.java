@@ -115,10 +115,11 @@ public class SecurityConfig
                 // 对于登录login 注册register 验证码captchaImage 允许匿名访问
                 // 静态资源，可匿名访问
                 requests.antMatchers("/login", "/register", "/captchaImage","/iot/tool/register","/iot/tool/ntp","/iot/tool/download",
-                            "/iot/tool/mqtt/webhook","/iot/tool/mqtt/webhookv5","/auth/**/**",
+                            "/auth/**/**",
                             "/wechat/mobileLogin", "/wechat/miniLogin", "/wechat/wxBind/callback").permitAll()
                     // 外置 Broker 的 POST 回调在控制器中独立验证回调密钥。
                     .antMatchers(HttpMethod.POST, "/iot/tool/mqtt/auth", "/iot/tool/mqtt/authv5").permitAll()
+                    .antMatchers(HttpMethod.POST, "/iot/tool/mqtt/webhook", "/iot/tool/mqtt/webhookv5").permitAll()
                     .antMatchers("/zlmhook/**").permitAll()
                     .antMatchers("/goview/sys/login","/goview/project/getData").permitAll()
                     .antMatchers("/app/language/list").permitAll()

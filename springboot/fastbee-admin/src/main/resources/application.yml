@@ -14,6 +14,11 @@ fastbee:
     server-password: ${FASTBEE_MQTT_SERVER_PASSWORD:}
     # 仅接入外置 Broker HTTP 认证时配置独立密钥。
     callback-token: ${FASTBEE_MQTT_CALLBACK_TOKEN:}
+    # 仅当外置 EMQX 向 /iot/tool/mqtt/webhook 或 /iot/tool/mqtt/webhookv5 发送设备事件时配置。
+    # 为 FastBee 进程设置环境变量 FASTBEE_MQTT_WEBHOOK_TOKEN，使用至少 32 字符的随机密钥，
+    # 且与 server-password、callback-token 不同。EMQX 的事件回调请求头 X-FastBee-Webhook-Token 填同一个值。
+    # 仅使用内置 Broker 时可留空。留空时 HTTP 事件回调返回 401，内置 Broker 仍通过 MQTT 会话更新设备状态。
+    webhook-token: ${FASTBEE_MQTT_WEBHOOK_TOKEN:}
     # 规则脚本或集成使用的额外精确 Topic，多个以逗号分隔。
     server-extra-publish-topics: ${FASTBEE_MQTT_SERVER_EXTRA_PUBLISH_TOPICS:}
     server-extra-subscribe-topics: ${FASTBEE_MQTT_SERVER_EXTRA_SUBSCRIBE_TOPICS:}

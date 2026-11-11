@@ -995,12 +995,12 @@ public class DeviceServiceImpl implements IDeviceService {
     @DSTransactional
     public int updateDeviceStatusAndLocation(Device device, String ipAddress) {
         // 设置自动定位和状态
-        if (ipAddress != "") {
+        if (StringUtils.isNotBlank(ipAddress)) {
             if (device.getActiveTime() == null) {
                 device.setActiveTime(DateUtils.getNowDate());
             }
             // 定位方式(1=ip自动定位，2=设备定位，3=自定义)
-            if (device.getLocationWay() == 1) {
+            if (Integer.valueOf(1).equals(device.getLocationWay())) {
                 device.setNetworkIp(ipAddress);
                 //setLocation(ipAddress, device);
             }

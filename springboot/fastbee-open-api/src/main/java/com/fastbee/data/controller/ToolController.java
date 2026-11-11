@@ -17,6 +17,7 @@ import com.fastbee.common.core.page.TableDataInfo;
 import com.fastbee.common.core.page.TableSupport;
 import com.fastbee.common.core.redis.RedisCache;
 import com.fastbee.common.enums.BusinessType;
+import com.fastbee.common.enums.DeviceStatus;
 import com.fastbee.common.enums.LimitType;
 import com.fastbee.common.exception.file.FileNameLengthLimitExceededException;
 import com.fastbee.common.utils.StringUtils;
@@ -33,11 +34,12 @@ import com.fastbee.iot.service.IDeviceService;
 import com.fastbee.iot.service.IToolService;
 import com.fastbee.iot.util.VelocityInitializer;
 import com.fastbee.iot.util.VelocityUtils;
-import com.fastbee.mq.model.ReportDataBo;
 import com.fastbee.mq.service.IMqttMessagePublish;
 import com.fastbee.mqttclient.MqttClientConfig;
 import com.fastbee.mqttclient.PubMqttClient;
 import com.github.pagehelper.PageHelper;
+import com.google.common.net.HostAndPort;
+import com.google.common.net.InetAddresses;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.swagger.annotations.Api;
@@ -67,6 +69,7 @@ import java.io.StringWriter;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.List;
+import java.util.Objects;
 import java.util.stream.Collectors;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
@@ -85,6 +88,7 @@ import static com.fastbee.common.utils.file.FileUploadUtils.getExtension;
 public class ToolController extends BaseController {
     private static final Logger log = LoggerFactory.getLogger(ToolController.class);
     private static final String MQTT_CALLBACK_TOKEN_HEADER = "X-FastBee-Callback-Token";
+    private static final String MQTT_WEBHOOK_TOKEN_HEADER = "X-FastBee-Webhook-Token";
     private static final int MAX_USER_LIST_PAGE_SIZE = 100;
 
     @Resource
@@ -273,111 +277,123 @@ public class ToolController extends BaseController {
 
     @ApiOperation("mqtt钩子处理")
     @PostMapping("/mqtt/webhook")
-    public void webHookProcess(@RequestBody MqttClientConnectModel model) {
-        try {
-            System.out.println("webhook:" + model.getAction());
-            // 过滤服务端、web端和手机端
-            if (model.getClientid().startsWith("server") || model.getClientid().startsWith("web") || model.getClientid().startsWith("phone")) {
-                return;
-            }
-            // 设备端认证：加密认证（E）和简单认证（S，配置的账号密码认证）
-            String[] clientArray = model.getClientid().split("&");
-            String authType = clientArray[0];
-            String deviceNumber = clientArray[1];
-            Long productId = Long.valueOf(clientArray[2]);
-            Long userId = Long.valueOf(clientArray[3]);
-
-            Device device = deviceService.selectShortDeviceBySerialNumber(deviceNumber);
-            ReportDataBo ruleBo = new ReportDataBo();
-            ruleBo.setProductId(device.getProductId());
-            ruleBo.setSerialNumber(device.getSerialNumber());
-            // 设备状态（1-未激活，2-禁用，3-在线，4-离线）
-            if (model.getAction().equals("client_disconnected")) {
-                device.setStatus(4);
-                deviceService.updateDeviceStatusAndLocation(device, "");
-                // 设备掉线后发布设备状态
-                messagePublish.publishStatus(device.getProductId(), device.getSerialNumber(), 4, device.getIsShadow(),device.getRssi());
-                // 清空保留消息，上线后发布新的属性功能保留消息
-                messagePublish.publishProperty(device.getProductId(), device.getSerialNumber(), null,0);
-                messagePublish.publishFunction(device.getProductId(), device.getSerialNumber(), null,0);
-
-            } else if (model.getAction().equals("client_connected")) {
-                device.setStatus(3);
-                deviceService.updateDeviceStatusAndLocation(device, model.getIpaddress());
-                // 设备上线后发布设备状态
-                messagePublish.publishStatus(device.getProductId(), device.getSerialNumber(), 3, device.getIsShadow(),device.getRssi());
-                // 影子模式，发布属性和功能
-                if (device.getIsShadow() == 1) {
-                    ThingsModelShadow shadow = deviceService.getDeviceShadowThingsModel(device);
-                    if (shadow.getProperties().size() > 0) {
-                        messagePublish.publishProperty(device.getProductId(), device.getSerialNumber(), shadow.getProperties(),3);
-                    }
-                    if (shadow.getFunctions().size() > 0) {
-                        messagePublish.publishFunction(device.getProductId(), device.getSerialNumber(), shadow.getFunctions(),3);
-                    }
-                }
-
-            }
-
-        } catch (Exception ex) {
-            ex.printStackTrace();
-            log.error("发生错误：" + ex.getMessage());
+    public ResponseEntity<Void> webHookProcess(
+            @RequestHeader(value = MQTT_WEBHOOK_TOKEN_HEADER, required = false) String webhookToken,
+            @RequestBody MqttClientConnectModel model) {
+        if (!mqttConfig.isTrustedWebhook(webhookToken)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
         }
+        if (model != null) {
+            if ("client_connected".equals(model.getAction())) {
+                handleDeviceWebhook(model.getClientid(), WebhookEvent.CONNECTED, model.getIpaddress(), true);
+            } else if ("client_disconnected".equals(model.getAction())) {
+                handleDeviceWebhook(model.getClientid(), WebhookEvent.DISCONNECTED, null, true);
+            }
+        }
+        return ResponseEntity.ok().build();
     }
 
     @ApiOperation("mqtt钩子处理")
     @PostMapping("/mqtt/webhookv5")
-    public void webHookProcessv5(@RequestBody JSONObject json) {
-        try {
-            String clientid = json.getString("clientid");
+    public ResponseEntity<Void> webHookProcessv5(
+            @RequestHeader(value = MQTT_WEBHOOK_TOKEN_HEADER, required = false) String webhookToken,
+            @RequestBody JSONObject json) {
+        if (!mqttConfig.isTrustedWebhook(webhookToken)) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).build();
+        }
+        if (json != null) {
             String event = json.getString("event");
-            String peername = json.getString("peername");  // 类似 127.0.0.111.11.11.11:8812
-            String ipAddress=peername;
-            if(peername.indexOf(":")!=-1){
-                ipAddress = peername.substring(0,peername.indexOf(":"));
+            String clientId = json.getString("clientid");
+            if ("client.connected".equals(event)) {
+                handleDeviceWebhook(clientId, WebhookEvent.CONNECTED, json.getString("peername"), false);
+            } else if ("client.disconnected".equals(event)) {
+                handleDeviceWebhook(clientId, WebhookEvent.DISCONNECTED, null, false);
+            } else if ("session.subscribed".equals(event)) {
+                handleDeviceWebhook(clientId, WebhookEvent.SUBSCRIBED, null, false);
             }
-            log.info("webhook:" + event + ",clientid:" + clientid);
-            // 过滤服务端、web端和手机端
-            if (clientid.startsWith("server") || clientid.startsWith("web") || clientid.startsWith("phone")) {
+        }
+        return ResponseEntity.ok().build();
+    }
+
+    private enum WebhookEvent {
+        CONNECTED, DISCONNECTED, SUBSCRIBED
+    }
+
+    private void handleDeviceWebhook(String clientId, WebhookEvent event, String peerAddress, boolean legacy) {
+        try {
+            Device device = findWebhookDevice(clientId, legacy);
+            if (device == null || Integer.valueOf(DeviceStatus.FORBIDDEN.getType()).equals(device.getStatus())) {
                 return;
             }
-            // 设备端认证：加密认证（E）和简单认证（S，配置的账号密码认证）
-            String[] clientArray = clientid.split("&");
-            String deviceNumber = clientArray[1];
-
-            Device device = deviceService.selectShortDeviceBySerialNumber(deviceNumber);
-            ReportDataBo ruleBo = new ReportDataBo();
-            ruleBo.setProductId(device.getProductId());
-            ruleBo.setSerialNumber(device.getSerialNumber());
-            // 设备状态（1-未激活，2-禁用，3-在线，4-离线）
-            if (event.equals("client.disconnected")) {
-                device.setStatus(4);
-                deviceService.updateDeviceStatusAndLocation(device, "");
-                // 设备掉线后发布设备状态
-                messagePublish.publishStatus(device.getProductId(), device.getSerialNumber(), 4, device.getIsShadow(),device.getRssi());
-                // 清空保留消息，上线后发布新的属性功能保留消息
-                messagePublish.publishProperty(device.getProductId(), device.getSerialNumber(), null,0);
-                messagePublish.publishFunction(device.getProductId(), device.getSerialNumber(), null,0);
-            } else if (event.equals("client.connected")) {
-                device.setStatus(3);
-                deviceService.updateDeviceStatusAndLocation(device, ipAddress);
-                // 设备掉线后发布设备状态
-                messagePublish.publishStatus(device.getProductId(), device.getSerialNumber(), 3, device.getIsShadow(),device.getRssi());
-            } else if(event.equals("session.subscribed")){
-                // 影子模式，发布属性和功能
-                if (device.getIsShadow() == 1) {
-                    ThingsModelShadow shadow = deviceService.getDeviceShadowThingsModel(device);
-                    if (shadow.getProperties().size() > 0) {
-                        messagePublish.publishProperty(device.getProductId(), device.getSerialNumber(), shadow.getProperties(),3);
-                    }
-                    if (shadow.getFunctions().size() > 0) {
-                        messagePublish.publishFunction(device.getProductId(), device.getSerialNumber(), shadow.getFunctions(),3);
-                    }
-                }
+            if (event == WebhookEvent.SUBSCRIBED) {
+                publishWebhookShadow(device);
+                return;
+            }
+            boolean connected = event == WebhookEvent.CONNECTED;
+            int status = (connected ? DeviceStatus.ONLINE : DeviceStatus.OFFLINE).getType();
+            device.setStatus(status);
+            deviceService.updateDeviceStatusAndLocation(device, connected ? webhookDeviceIp(peerAddress) : "");
+            messagePublish.publishStatus(device.getProductId(), device.getSerialNumber(), status,
+                    device.getIsShadow() == null ? 0 : device.getIsShadow(),
+                    device.getRssi() == null ? 0 : device.getRssi());
+            if (!connected) {
+                messagePublish.publishProperty(device.getProductId(), device.getSerialNumber(), null, 0);
+                messagePublish.publishFunction(device.getProductId(), device.getSerialNumber(), null, 0);
+            } else if (legacy) {
+                publishWebhookShadow(device);
             }
         } catch (Exception ex) {
-            ex.printStackTrace();
-            log.error("发生错误：" + ex.getMessage());
+            log.error("处理 MQTT 事件回调失败 event={}, error={}", event, ex.getClass().getSimpleName());
+        }
+    }
+
+    private Device findWebhookDevice(String clientId, boolean legacy) {
+        if (StringUtils.isBlank(clientId) || clientId.startsWith("server")
+                || clientId.startsWith("web") || clientId.startsWith("phone")) {
+            return null;
+        }
+        String[] fields = clientId.split("&", -1);
+        if (fields.length < 2 || StringUtils.isBlank(fields[1])) {
+            return null;
+        }
+        Long productId = null;
+        if (legacy || (fields.length >= 4 && ("S".equals(fields[0]) || "E".equals(fields[0])))) {
+            if (fields.length < 4) {
+                return null;
+            }
+            try {
+                productId = Long.valueOf(fields[2]);
+                Long.parseLong(fields[3]);
+            } catch (NumberFormatException ex) {
+                return null;
+            }
+        }
+        Device device = deviceService.selectShortDeviceBySerialNumber(fields[1]);
+        return device != null && (productId == null || Objects.equals(productId, device.getProductId())) ? device : null;
+    }
+
+    private String webhookDeviceIp(String peerAddress) {
+        if (StringUtils.isBlank(peerAddress)) {
+            return "";
+        }
+        try {
+            String host = HostAndPort.fromString(peerAddress.trim()).getHost();
+            return InetAddresses.isInetAddress(host) ? host : "";
+        } catch (IllegalArgumentException ex) {
+            return "";
+        }
+    }
+
+    private void publishWebhookShadow(Device device) {
+        if (!Integer.valueOf(1).equals(device.getIsShadow())) {
+            return;
+        }
+        ThingsModelShadow shadow = deviceService.getDeviceShadowThingsModel(device);
+        if (!shadow.getProperties().isEmpty()) {
+            messagePublish.publishProperty(device.getProductId(), device.getSerialNumber(), shadow.getProperties(), 3);
+        }
+        if (!shadow.getFunctions().isEmpty()) {
+            messagePublish.publishFunction(device.getProductId(), device.getSerialNumber(), shadow.getFunctions(), 3);
         }
     }
 
