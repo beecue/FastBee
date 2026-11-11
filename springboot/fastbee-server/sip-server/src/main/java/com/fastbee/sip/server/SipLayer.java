@@ -1,5 +1,6 @@
 package com.fastbee.sip.server;
 
+import com.fastbee.common.exception.ServiceException;
 import com.fastbee.sip.conf.SysSipConfig;
 import com.fastbee.sip.domain.MediaServer;
 import com.fastbee.sip.model.ZlmMediaServer;
@@ -53,7 +54,11 @@ public class SipLayer {
             if (mediaServer != null) {
                 log.info("zlm配置获取成功成功...");
                 sipCacheService.updateMediaInfo(mediaServer);
-                mediaServerService.syncMediaServer(media, media.getSecret());
+                try {
+                    mediaServerService.syncMediaServer(media, media.getSecret());
+                } catch (ServiceException e) {
+                    log.warn("[ZLM] 回调配置未同步 mediaServerId={}, reason={}", media.getServerId(), e.getMessage());
+                }
             }
         }
         return sipFactory;

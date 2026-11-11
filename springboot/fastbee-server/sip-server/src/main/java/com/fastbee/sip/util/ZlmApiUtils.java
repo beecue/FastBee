@@ -72,7 +72,7 @@ public class ZlmApiUtils {
                     responseJSON = JSON.parseObject(responseStr);
                 }
             } catch (ConnectException e) {
-                log.error(String.format("连接ZLM失败: %s, %s", e.getCause().getMessage(), e.getMessage()));
+                log.error("连接ZLM失败: {}", e.getMessage());
                 log.info("请检查media配置并确认ZLM已启动...");
             } catch (IOException e) {
                 e.printStackTrace();
@@ -89,7 +89,6 @@ public class ZlmApiUtils {
         if (responseJSON != null) {
             JSONArray data = responseJSON.getJSONArray("data");
             if (data != null && data.size() > 0) {
-                log.info("流媒体服务配置:{}}", data);
                 mediaServer = JSON.parseObject(JSON.toJSONString(data.get(0)), ZlmMediaServer.class);
             }
         } else {

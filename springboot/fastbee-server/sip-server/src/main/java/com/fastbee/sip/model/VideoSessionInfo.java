@@ -16,6 +16,7 @@ public class VideoSessionInfo {
     private int port;
     private String streamMode;
     private SessionType type;
+    private long playRequestedAt;
     //流状态
     private boolean pushing;
     private boolean recording;

@@ -16,6 +16,7 @@ import org.springframework.stereotype.Component;
 import com.fastbee.common.annotation.RateLimiter;
 import com.fastbee.common.enums.LimitType;
 import com.fastbee.common.exception.ServiceException;
+import com.fastbee.common.utils.SecurityUtils;
 import com.fastbee.common.utils.ServletUtils;
 import com.fastbee.common.utils.StringUtils;
 import com.fastbee.common.utils.ip.IpUtils;
@@ -80,6 +81,10 @@ public class RateLimiterAspect
         if (rateLimiter.limitType() == LimitType.IP)
         {
             stringBuffer.append(IpUtils.getIpAddr()).append("-");
+        }
+        else if (rateLimiter.limitType() == LimitType.USER)
+        {
+            stringBuffer.append(SecurityUtils.getUserId()).append("-");
         }
         MethodSignature signature = (MethodSignature) point.getSignature();
         Method method = signature.getMethod();

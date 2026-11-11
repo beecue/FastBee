@@ -24,6 +24,8 @@ public interface IMediaServerService
      * @return 流媒体服务器配置
      */
     public MediaServer selectMediaServerById(Long id);
+
+    MediaServer selectMediaServerByServerId(String serverId);
     /**
      * 查询流媒体服务器配置
      *

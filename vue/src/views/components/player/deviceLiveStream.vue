@@ -34,13 +34,13 @@ export default {
         // 获取到父组件传递的device后
         device: function (newVal, oldVal) {
             this.deviceInfo = newVal;
-            if (this.deviceInfo.channelId) {
-                this.channelId = this.deviceInfo.channelId;
-                this.changeChannel();
-            }
             if (this.deviceInfo && this.deviceInfo.deviceId !== 0) {
                 this.queryParams.deviceSipId = this.deviceInfo.serialNumber;
-                this.deviceId = this.device.serialNumber;
+                this.deviceId = this.deviceInfo.serialNumber;
+                if (this.deviceInfo.channelId) {
+                    this.channelId = this.deviceInfo.channelId;
+                    this.changeChannel();
+                }
             }
         },
     },
@@ -50,6 +50,9 @@ export default {
             deviceId: '',
             channelId: '',
             streamId: '',
+            playingDeviceId: '',
+            playingChannelId: '',
+            playRequest: 0,
             ssrc: '',
             playurl: '',
             playinfo: { playtype: 'play' },
@@ -77,7 +80,7 @@ export default {
     },
     beforeDestroy() {
         console.log('beforeDestroy');
-        this.closeDestroy(false);
+        this.closeDestroy();
     },
     methods: {
         /** 查询监控设备通道信息列表 */
@@ -96,10 +99,16 @@ export default {
         },
         // 直播播放
         TimeoutCallback() {
-            this.closeDestroy(false);
+            if (!this.playing) {
+                return;
+            }
+            this.closeDestroy();
             this.retrycount = 0;
+            const request = this.playRequest;
             setTimeout(() => {
-                this.startPlayer();
+                if (request === this.playRequest) {
+                    this.startPlayer();
+                }
             }, 1000);
         },
         startPushStream() {
@@ -111,7 +120,7 @@ export default {
             if (this.pushStream) {
                 this.startPlayer();
             } else {
-                this.closeDestroy(true);
+                this.closeDestroy();
             }
         },
         // 开启直播播放器
@@ -122,51 +131,45 @@ export default {
             }
             this.deviceId = this.queryParams.deviceSipId;
             if (this.playing) {
-                this.closeDestroy(false);
+                this.closeDestroy();
             }
-            this.$refs.player.registercallback('loadingTimeout', this.TimeoutCallback);
-            this.$refs.player.registercallback('delayTimeout', this.TimeoutCallback);
-            startPlay(this.deviceId, this.channelId).then((response) => {
-                console.log('开始推流: [' + this.channelId + ']');
+            const deviceId = this.deviceId;
+            const channelId = this.channelId;
+            const request = ++this.playRequest;
+            Promise.all([startPlay(deviceId, channelId), this.playerReset]).then(([response]) => {
+                if (request !== this.playRequest) {
+                    return;
+                }
+                console.log('开始推流: [' + channelId + ']');
                 const res = response.data;
                 this.streamId = res.streamId;
+                this.playingDeviceId = deviceId;
+                this.playingChannelId = channelId;
                 this.playurl = res.playurl;
-                this.$refs.player.play(this.playurl);
                 this.playing = true;
                 this.pushStream = true;
+                this.$refs.player.registercallback('loadingTimeout', this.TimeoutCallback);
+                this.$refs.player.registercallback('delayTimeout', this.TimeoutCallback);
+                this.$refs.player.play(this.playurl);
             });
         },
-        closeStream(force) {
-            if (force) {
-                if (this.playing && this.streamId) {
-                    console.log('强制关闭推流: [' + this.streamId + ']');
-                    closeStream(this.deviceId, this.channelId, this.streamId).then((res) => {
-                        this.streamId = '';
-                        this.ssrc = '';
-                        this.playurl = '';
-                        this.pushStream = false;
-                    });
-                    this.playing = false;
-                }
-            } else {
-                if (this.playing && this.streamId) {
-                    console.log('关闭推流: [' + this.streamId + ']');
-                    closeStream(this.deviceId, this.channelId, this.streamId).then((res) => {
-                        this.streamId = '';
-                        this.ssrc = '';
-                        this.playurl = '';
-                        this.pushStream = false;
-                    });
-                    this.playing = false;
-                }
+        closeDestroy() {
+            this.playRequest++;
+            const { playingDeviceId, playingChannelId, streamId } = this;
+            this.streamId = '';
+            this.playingDeviceId = '';
+            this.playingChannelId = '';
+            this.ssrc = '';
+            this.playurl = '';
+            this.pushStream = false;
+            this.playing = false;
+            this.playerReset = this.$refs.player.destroy();
+            if (streamId) {
+                closeStream(playingDeviceId, playingChannelId, streamId);
             }
         },
-        closeDestroy(force) {
-            this.closeStream(force);
-            this.$refs.player.destroy();
-        },
         destroy() {
-            this.$refs.player.destroy();
+            this.playerReset = this.$refs.player.destroy();
         },
     },
 };

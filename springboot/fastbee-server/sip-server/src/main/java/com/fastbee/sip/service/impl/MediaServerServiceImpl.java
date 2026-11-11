@@ -1,13 +1,13 @@
 package com.fastbee.sip.service.impl;
 
 import com.alibaba.fastjson.JSONObject;
-import com.fastbee.common.core.domain.entity.SysRole;
 import com.fastbee.common.core.domain.entity.SysUser;
 import com.fastbee.common.exception.ServiceException;
 import com.fastbee.common.utils.DateUtils;
 import com.fastbee.common.utils.MessageUtils;
 import com.fastbee.iot.domain.Device;
 import com.fastbee.iot.mapper.DeviceMapper;
+import com.fastbee.sip.conf.SysSipConfig;
 import com.fastbee.sip.domain.MediaServer;
 import com.fastbee.sip.domain.SipConfig;
 import com.fastbee.sip.domain.SipDevice;
@@ -16,9 +16,13 @@ import com.fastbee.sip.model.VideoSessionInfo;
 import com.fastbee.sip.model.ZlmMediaServer;
 import com.fastbee.sip.server.VideoSessionManager;
 import com.fastbee.sip.service.IMediaServerService;
+import com.fastbee.sip.service.MediaAccessTokens;
 import com.fastbee.sip.util.ZlmApiUtils;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
+import org.springframework.security.access.AccessDeniedException;
 import org.springframework.stereotype.Service;
 import org.springframework.util.ObjectUtils;
 
@@ -47,9 +51,26 @@ public class MediaServerServiceImpl implements IMediaServerService {
     @Autowired
     private VideoSessionManager streamSession;
 
+    @Autowired
+    private MediaAccessTokens mediaAccessTokens;
+
+    @Autowired
+    private SysSipConfig sipConfig;
+
     @Override
     public MediaServer selectMediaServerById(Long id) {
         return mediaServerMapper.selectMediaServerById(id);
+    }
+
+    @Override
+    public MediaServer selectMediaServerByServerId(String serverId) {
+        if (serverId == null || serverId.isEmpty()) {
+            return null;
+        }
+        MediaServer query = new MediaServer();
+        query.setServerId(serverId);
+        List<MediaServer> nodes = mediaServerMapper.selectMediaServerList(query);
+        return nodes.size() == 1 && serverId.equals(nodes.get(0).getServerId()) ? nodes.get(0) : null;
     }
 
     /**
@@ -61,12 +82,8 @@ public class MediaServerServiceImpl implements IMediaServerService {
     public List<MediaServer> selectMediaServer() {
         MediaServer mediaServer = new MediaServer();
         SysUser user = getLoginUser().getUser();
-        List<SysRole> roles = user.getRoles();
-        for (int i = 0; i < roles.size(); i++) {
-            if (roles.get(i).getRoleKey().equals("tenant")) {
-                // 租户查看第一条流媒体服务器配置
-                mediaServer.setTenantId(user.getUserId());
-            }
+        if (!user.isAdmin()) {
+            mediaServer.setTenantId(user.getUserId());
         }
         return mediaServerMapper.selectMediaServer(mediaServer);
     }
@@ -75,7 +92,7 @@ public class MediaServerServiceImpl implements IMediaServerService {
     public MediaServer selectMediaServerBytenantId(Long tenantId) {
         List<MediaServer> list = mediaServerMapper.selectMediaServerBytenantId(tenantId);
         if (list.size() == 0) {
-            return selectMediaServerBytenantId(1L);
+            return Long.valueOf(1L).equals(tenantId) ? null : selectMediaServerBytenantId(1L);
         } else if (list.size() == 1) {
             return list.get(0);
         } else {
@@ -176,8 +193,11 @@ public class MediaServerServiceImpl implements IMediaServerService {
     @Override
     public int updateMediaServer(MediaServer mediaServer) {
         if (mediaServer.getId() != null) {
+            MediaServer current = requireMediaServerAccess(mediaServer.getId());
             String newSecret = mediaServer.getSecret();
-            mediaServer.setSecret(mediaServerMapper.selectMediaServerById(mediaServer.getId()).getSecret());
+            mediaServer.setTenantId(current.getTenantId());
+            mediaServer.setTenantName(current.getTenantName());
+            mediaServer.setSecret(current.getSecret());
             boolean ret = syncMediaServer(mediaServer, newSecret);
             if (ret) {
                 mediaServer.setSecret(newSecret);
@@ -190,33 +210,11 @@ public class MediaServerServiceImpl implements IMediaServerService {
 
     @Override
     public boolean syncMediaServer(MediaServer mediaServer, String secret) {
-        String hookPrex = String.format("http://%s/zlmhook", mediaServer.getHookurl());
-        Map<String, Object> param = new HashMap<>();
+        requireUniqueServerId(mediaServer);
+        Map<String, Object> param = mediaHookConfig(mediaServer);
         param.put("api.secret", secret);
-
-        param.put("hook.enable", "1");
-        param.put("general.mediaServerId", mediaServer.getServerId());
         param.put("general.flowThreshold", "64");
-        param.put("hook.on_play", String.format("%s/on_play", hookPrex));
-        param.put("hook.on_http_access", String.format("%s/on_http_access", hookPrex));
-        param.put("hook.on_publish", String.format("%s/on_publish", hookPrex));
-        param.put("hook.on_server_started", String.format("%s/on_server_started", hookPrex));
-        param.put("hook.on_stream_changed", String.format("%s/on_stream_changed", hookPrex));
-        param.put("hook.on_stream_none_reader", String.format("%s/on_stream_none_reader", hookPrex));
-        param.put("hook.on_stream_not_found", String.format("%s/on_stream_not_found", hookPrex));
-        param.put("hook.on_send_rtp_stopped", String.format("%s/on_send_rtp_stopped", hookPrex));
-        param.put("hook.on_rtp_server_timeout", String.format("%s/on_rtp_server_timeout", hookPrex));
-        param.put("hook.on_flow_report", String.format("%s/on_flow_report", hookPrex));
-        param.put("hook.on_server_keepalive", String.format("%s/on_server_keepalive", hookPrex));
-        param.put("hook.on_server_exited", String.format("%s/on_server_exited", hookPrex));
-        if (Objects.equals(mediaServer.getProtocol(), "http")) {
-            param.put("hook.on_record_mp4", String.format("http://127.0.0.1:%s/zlmhook/on_record_mp4", mediaServer.getRecordPort()));
-        } else if (Objects.equals(mediaServer.getProtocol(), "https")) {
-            param.put("hook.on_record_mp4", String.format("https://%s:%s/zlmhook/on_record_mp4", mediaServer.getDomain(), mediaServer.getRecordPort()));
-        }
         param.put("hook.on_record_ts", "");
-        param.put("hook.on_rtsp_auth", "");
-        param.put("hook.on_rtsp_realm", "");
         param.put("hook.on_shell_login", "");
         param.put("hook.timeoutSec", "20");
         param.put("hook.alive_interval", "60.0");
@@ -231,13 +229,77 @@ public class MediaServerServiceImpl implements IMediaServerService {
             log.warn("[ZLM] 修改RTP推流端口时，请同步Docker端口映射");
         }
         JSONObject responseJSON = zlmApiUtils.setServerConfig(mediaServer, param);
-        if (responseJSON != null && responseJSON.getInteger("code") == 0) {
+        if (responseJSON != null && Integer.valueOf(0).equals(responseJSON.getInteger("code"))) {
             log.info("[ZLM] 设置成功,开始重启以保证配置生效");
-            zlmApiUtils.restartServer(mediaServer);
+            MediaServer restartTarget = new MediaServer();
+            restartTarget.setIp(mediaServer.getIp());
+            restartTarget.setPortHttp(mediaServer.getPortHttp());
+            restartTarget.setSecret(secret);
+            zlmApiUtils.restartServer(restartTarget);
             return true;
-        } else {
-            log.info("[ZLM] 设置zlm失败 {}", responseJSON);
-            return false;
+        }
+        log.warn("[ZLM] 设置失败 mediaServerId={}", mediaServer.getServerId());
+        return false;
+    }
+
+    @EventListener(ApplicationReadyEvent.class)
+    public void syncMediaHookSecurity() {
+        if (!sipConfig.isEnabled()) {
+            return;
+        }
+        for (MediaServer node : mediaServerMapper.selectMediaServerList(new MediaServer())) {
+            try {
+                requireUniqueServerId(node);
+                JSONObject result = zlmApiUtils.setServerConfig(node, mediaHookConfig(node));
+                if (result != null && Integer.valueOf(0).equals(result.getInteger("code"))) {
+                    log.info("[ZLM] 回调配置同步成功 mediaServerId={}", node.getServerId());
+                    continue;
+                }
+            } catch (RuntimeException e) {
+                log.warn("[ZLM] 回调配置同步异常 mediaServerId={}, error={}", node.getServerId(), e.getClass().getSimpleName());
+                continue;
+            }
+            log.warn("[ZLM] 回调配置同步失败，请检查节点并重新保存流媒体配置 mediaServerId={}", node.getServerId());
+        }
+    }
+
+    private Map<String, Object> mediaHookConfig(MediaServer mediaServer) {
+        String hookPrex = String.format("http://%s/zlmhook", mediaServer.getHookurl());
+        Map<String, Object> param = new HashMap<>();
+        String token = mediaAccessTokens.provisionHookToken(mediaServer);
+        String hookQuery = "?hookToken=" + token;
+
+        param.put("hook.enable", "1");
+        // Older ZLM versions support an admin query string that skips playback hooks.
+        param.put("hook.admin_params", "fastbeeInternal=" + UUID.randomUUID());
+        param.put("api.apiDebug", "0");
+        param.put("general.mediaServerId", mediaServer.getServerId());
+        for (String event : Arrays.asList("on_play", "on_http_access", "on_publish", "on_server_started",
+                "on_stream_changed", "on_stream_none_reader", "on_stream_not_found", "on_send_rtp_stopped",
+                "on_rtp_server_timeout", "on_flow_report", "on_server_keepalive", "on_server_exited")) {
+            param.put("hook." + event, hookPrex + "/" + event + hookQuery);
+        }
+        if (Objects.equals(mediaServer.getProtocol(), "http")) {
+            param.put("hook.on_record_mp4", String.format("http://127.0.0.1:%s/zlmhook/on_record_mp4%s", mediaServer.getRecordPort(), hookQuery));
+        } else if (Objects.equals(mediaServer.getProtocol(), "https")) {
+            param.put("hook.on_record_mp4", String.format("https://%s:%s/zlmhook/on_record_mp4%s", mediaServer.getDomain(), mediaServer.getRecordPort(), hookQuery));
+        }
+        param.put("hook.on_rtsp_auth", "");
+        param.put("hook.on_rtsp_realm", "");
+
+        return param;
+    }
+
+    private void requireUniqueServerId(MediaServer node) {
+        if (node.getServerId() == null || node.getServerId().trim().isEmpty() || node.getServerId().length() > 128) {
+            throw new ServiceException("流媒体服务器编号无效");
+        }
+        MediaServer query = new MediaServer();
+        query.setServerId(node.getServerId());
+        boolean duplicate = mediaServerMapper.selectMediaServerList(query).stream()
+                .anyMatch(existing -> !Objects.equals(existing.getId(), node.getId()));
+        if (duplicate) {
+            throw new ServiceException("流媒体服务器编号重复");
         }
     }
 
@@ -249,6 +311,9 @@ public class MediaServerServiceImpl implements IMediaServerService {
      */
     @Override
     public int deleteMediaServerByIds(Long[] ids) {
+        for (Long id : ids) {
+            requireMediaServerAccess(id);
+        }
         return mediaServerMapper.deleteMediaServerByIds(ids);
     }
 
@@ -260,7 +325,17 @@ public class MediaServerServiceImpl implements IMediaServerService {
      */
     @Override
     public int deleteMediaServerById(Long id) {
+        requireMediaServerAccess(id);
         return mediaServerMapper.deleteMediaServerById(id);
+    }
+
+    private MediaServer requireMediaServerAccess(Long id) {
+        SysUser user = getLoginUser().getUser();
+        MediaServer node = mediaServerMapper.selectMediaServerById(id);
+        if (node == null || (!user.isAdmin() && !Objects.equals(user.getUserId(), node.getTenantId()))) {
+            throw new AccessDeniedException("无权管理该流媒体服务器");
+        }
+        return node;
     }
 
     @Override

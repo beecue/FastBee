@@ -262,11 +262,17 @@ export default {
             }
         },
         destroy() {
-            if (jessibucaPlayer[this._uid]) {
-                jessibucaPlayer[this._uid].destroy().then(() => {
-                    this.initplayer();
+            const player = jessibucaPlayer[this._uid];
+            if (player && !this.playerReset) {
+                this.playerReset = player.destroy().then(() => {
+                    if (this.$refs.container) {
+                        this.initplayer();
+                    }
+                }).finally(() => {
+                    this.playerReset = null;
                 });
             }
+            return this.playerReset;
         },
         close() {
             if (jessibucaPlayer[this._uid]) {

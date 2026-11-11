@@ -100,6 +100,7 @@ public class SipCmdImpl implements ISipCmd {
                     .port(info.getPort()).build();
             log.warn("playStreamCmd invite: {}", invite);
             inviteService.updateInviteInfo(info, invite);
+            info.setPlayRequestedAt(System.currentTimeMillis());
             streamSession.put(info, transaction);
             return info;
         } catch (SipException | ParseException | InvalidArgumentException e) {
@@ -114,17 +115,17 @@ public class SipCmdImpl implements ISipCmd {
             log.error("[发送BYE] sipConfig is null");
             return;
         }
-        MediaServer mediaInfo = mediaServerService.selectMediaServerBydeviceSipId(device.getDeviceSipId());
-        if (mediaInfo == null) {
-            log.error("[发送BYE] mediaInfo is null");
-            return;
-        }
         List<VideoSessionInfo> SessionInfoList = streamSession.getSessionInfoForAll(device.getDeviceSipId(), channelId, stream, ssrc);
         if (SessionInfoList == null || SessionInfoList.isEmpty()) {
             log.warn("[发送BYE] 未找到事务信息,设备： device: {}, channel: {}", device.getDeviceSipId(), channelId);
             return;
         }
         for (VideoSessionInfo info : SessionInfoList) {
+            MediaServer mediaInfo = mediaServerService.selectMediaServerByServerId(info.getMediaServerId());
+            if (mediaInfo == null) {
+                log.error("[发送BYE] mediaInfo is null");
+                continue;
+            }
             try {
                 log.warn("[发送BYE] 设备： device: {}, channel: {}, stream: {}, ssrc: {}", device.getDeviceSipId(),
                         info.getChannelId(), info.getStream(), info.getSsrc());
