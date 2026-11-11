@@ -247,7 +247,7 @@ public class ToolServiceImpl implements IToolService
     @Override
     public List<SysUser> selectUserList(SysUser user)
     {
-        return userMapper.selectUserList(user);
+        return userService.selectUserList(user);
     }
 
     /**

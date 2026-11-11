@@ -3,6 +3,7 @@ package com.fastbee.data.controller;
 import com.alibaba.fastjson2.JSONObject;
 import com.fastbee.common.ProtocolDeCodeService;
 import com.fastbee.common.annotation.Log;
+import com.fastbee.common.annotation.RateLimiter;
 import com.fastbee.common.config.RuoYiConfig;
 import com.fastbee.common.constant.CacheConstants;
 import com.fastbee.common.constant.Constants;
@@ -11,14 +12,20 @@ import com.fastbee.common.core.domain.AjaxResult;
 import com.fastbee.common.core.domain.entity.SysUser;
 import com.fastbee.common.core.domain.model.LoginUser;
 import com.fastbee.common.core.iot.response.DeCodeBo;
+import com.fastbee.common.core.page.PageDomain;
 import com.fastbee.common.core.page.TableDataInfo;
+import com.fastbee.common.core.page.TableSupport;
 import com.fastbee.common.core.redis.RedisCache;
 import com.fastbee.common.enums.BusinessType;
+import com.fastbee.common.enums.LimitType;
 import com.fastbee.common.exception.file.FileNameLengthLimitExceededException;
 import com.fastbee.common.utils.StringUtils;
+import com.fastbee.common.utils.SecurityUtils;
 import com.fastbee.common.utils.file.FileUploadUtils;
 import com.fastbee.common.utils.file.FileUtils;
 import com.fastbee.common.utils.gateway.mq.TopicsUtils;
+import com.fastbee.common.utils.sql.SqlUtil;
+import com.fastbee.data.model.UserSelectionItem;
 import com.fastbee.iot.domain.Device;
 import com.fastbee.iot.model.*;
 import com.fastbee.iot.model.ThingsModels.ThingsModelShadow;
@@ -30,6 +37,7 @@ import com.fastbee.mq.model.ReportDataBo;
 import com.fastbee.mq.service.IMqttMessagePublish;
 import com.fastbee.mqttclient.MqttClientConfig;
 import com.fastbee.mqttclient.PubMqttClient;
+import com.github.pagehelper.PageHelper;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.swagger.annotations.Api;
@@ -45,6 +53,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -58,6 +67,7 @@ import java.io.StringWriter;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.List;
+import java.util.stream.Collectors;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
@@ -75,6 +85,7 @@ import static com.fastbee.common.utils.file.FileUploadUtils.getExtension;
 public class ToolController extends BaseController {
     private static final Logger log = LoggerFactory.getLogger(ToolController.class);
     private static final String MQTT_CALLBACK_TOKEN_HEADER = "X-FastBee-Callback-Token";
+    private static final int MAX_USER_LIST_PAGE_SIZE = 100;
 
     @Resource
     private IDeviceService deviceService;
@@ -110,12 +121,39 @@ public class ToolController extends BaseController {
      * 获取用户列表
      */
     @ApiOperation("获取用户列表")
+    @PreAuthorize("@ss.hasPermi('system:user:list')")
+    @RateLimiter(count = 120, limitType = LimitType.USER)
     @GetMapping("/userList")
-    public TableDataInfo list(SysUser user)
-    {
-        startPage();
-        List<SysUser> list = toolService.selectUserList(user);
-        return getDataTable(list);
+    public TableDataInfo list(@RequestParam(value = "userId", required = false) Long userId,
+                              @RequestParam(value = "userName", required = false) String userName,
+                              @RequestParam(value = "status", required = false) String status,
+                              @RequestParam(value = "phonenumber", required = false) String phonenumber,
+                              @RequestParam(value = "deptId", required = false) Long deptId,
+                              @RequestParam(value = "params[beginTime]", required = false) String beginTime,
+                              @RequestParam(value = "params[endTime]", required = false) String endTime) {
+        SysUser query = new SysUser();
+        query.setUserId(userId);
+        query.setUserName(userName);
+        query.setStatus(status);
+        query.setPhonenumber(phonenumber);
+        query.setDeptId(deptId);
+        query.getParams().put("beginTime", beginTime);
+        query.getParams().put("endTime", endTime);
+
+        PageDomain page = TableSupport.buildPageRequest();
+        int pageSize = Math.max(1, Math.min(page.getPageSize(), MAX_USER_LIST_PAGE_SIZE));
+        PageHelper.startPage(page.getPageNum(), pageSize, SqlUtil.escapeOrderBySql(page.getOrderBy()))
+                .setReasonable(page.getReasonable());
+        try {
+            List<SysUser> users = toolService.selectUserList(query);
+            TableDataInfo result = getDataTable(users);
+            result.setRows(users.stream().map(UserSelectionItem::new).collect(Collectors.toList()));
+            log.info("用户选择列表查询 userId={}, pageNum={}, pageSize={}, returned={}",
+                    SecurityUtils.getUserId(), page.getPageNum(), pageSize, users.size());
+            return result;
+        } finally {
+            PageHelper.clearPage();
+        }
     }
 
     /**
