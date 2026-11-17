@@ -85,7 +85,7 @@ FastBee integrates device management, data monitoring, and multi-end application
 
 ### 5. More Information
 
-1. **Commercial License**: The open-source edition is licensed under AGPL3 for personal learning and use. For commercial use, purchasing a [commercial license](https://fastbee.cn/doc/pages/sponsor/) is recommended.
+1. **Commercial License**: The open-source edition is licensed under Apache-2.0. Commercial use is permitted.
 2. **Online Demo**: [Commercial version demo](https://iot.fastbee.cn/) (open-source version currently supports MQTT protocol only).
 3. **Documentation**: [https://fastbee.cn/doc/](https://fastbee.cn/doc/)
 4. **QQ Groups**: 720136372, 946029159, 1073236354
